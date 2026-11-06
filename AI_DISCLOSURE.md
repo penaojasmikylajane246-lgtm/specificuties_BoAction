@@ -1,11 +1,4 @@
-# AI Disclosure Log — Project BoAction
-
-**Group Name:** Specificuties  
-**Course & Section:** BSI/T-3E  
-**Project:** BoAction: A Web-Based Municipal Complaint Reporting and Tracking System for the Municipality of Boac  
-**Date:** November 6, 2026  
-**GitHub Repository:** https://github.com/penaojasmikylajane246-lgtm/specificuties_BoAction.git  
-
+# 8. AI DISCLOSURE PROGRESS
 ---
 
 The group used AI assistance during the preparation and refinement of selected project documentation. AI assistance was used for improving sentence structure, organizing ideas, checking grammar, refining technology descriptions, and generating the baseline client-side web application source code (`boaction_system.html`, `script.js`, `style.css`). The group remains responsible for reviewing, verifying, and finalizing all submitted content.
