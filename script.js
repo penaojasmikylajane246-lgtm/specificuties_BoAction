@@ -58,14 +58,19 @@ const BOAC_BARANGAYS = [
 const STORAGE_KEY = "boaction_complaints_db";
 const USERS_KEY = "boaction_users_db";
 const SESSION_KEY = "boaction_current_user";
+const PASSWORD_ITERATIONS = 210000;
 const REPORT_STATUSES = ["Pending Review", "In Progress", "Resolved", "Closed"];
+const REPORT_PRIORITIES = ["Urgent", "High", "Normal", "Low"];
+const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
+let pendingProfilePhoto = "";
+let profilePhotoChanged = false;
 let activeReportId = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   initBarangays();
+  initAdminDashboard();
   initUsers();
   initDatabase();
-  initAdminDashboard();
   checkSession();
 });
 
@@ -73,6 +78,8 @@ function initBarangays() {
   const selects = [
     document.getElementById("barangaySelect"),
     document.getElementById("gateRegBrgy"),
+    document.getElementById("adminOfficerBarangay"),
+    document.getElementById("profileBarangay"),
   ];
   selects.forEach((select) => {
     if (!select) return;
@@ -87,53 +94,28 @@ function initBarangays() {
 }
 
 function initUsers() {
-  if (!localStorage.getItem(USERS_KEY)) {
-    const defaults = [
-      {
-        id: "09123456789",
-        pass: "user123",
-        name: "Maria Santos",
-        barangay: "Poras",
-        role: "citizen",
-      },
-      {
-        id: "admin",
-        pass: "admin123",
-        name: "LGU Admin Officer",
-        barangay: "Poblacion",
-        role: "admin",
-      },
-    ];
-    localStorage.setItem(USERS_KEY, JSON.stringify(defaults));
+  const users = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+  if (!Array.isArray(users)) {
+    throw new Error("Stored BoAction accounts are invalid.");
   }
+  if (users.some((user) => user.role === "admin")) return;
+  users.push({
+    id: "admin",
+    pass: "admin123",
+    name: "LGU Admin Officer",
+    barangay: "Isok 1 (Poblacion)",
+    role: "admin",
+  });
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }
 
 function initDatabase() {
-  if (!localStorage.getItem(STORAGE_KEY)) {
-    const mock = [
-      {
-        id: "BOAC-2026-8912",
-        name: "Juan Dela Cruz",
-        contact: "09181234567",
-        barangay: "Poras",
-        category: "Road Maintenance",
-        description: "Deep pothole near barangay hall.",
-        date: "2026-11-01",
-        status: "In Progress",
-      },
-      {
-        id: "BOAC-2026-4431",
-        name: "Maria Santos",
-        contact: "09123456789",
-        barangay: "Malusak (Poblacion)",
-        category: "Waste Management",
-        description: "Uncollected garbage piles.",
-        date: "2026-11-02",
-        status: "Pending Review",
-      },
-    ];
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(mock));
+  if (localStorage.getItem(STORAGE_KEY) === null) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    return;
   }
+  const reports = JSON.parse(localStorage.getItem(STORAGE_KEY));
+  if (!Array.isArray(reports)) throw new Error("Stored complaint records are invalid.");
 }
 
 function toggleAuthGateTab(tab) {
@@ -162,155 +144,324 @@ function toggleAuthGateTab(tab) {
     : "Create your account";
   description.textContent = isLogin
     ? "Enter your details to continue to the BoAction community portal."
-    : "Register as a resident or LGU Admin Officer to continue.";
-}
-
-function toggleGateRegisterRole() {
-  const isAdmin = document.getElementById("gateRegAdmin").checked;
-  const barangayField = document.getElementById("gateRegBarangayField");
-  const barangaySelect = document.getElementById("gateRegBrgy");
-
-  barangayField.classList.toggle("hidden", isAdmin);
-  barangaySelect.required = !isAdmin;
+    : "Register as a resident to continue.";
 }
 
 function toggleGatePasswordVisibility() {
-  const passwordInput = document.getElementById("gateLoginPass");
-  const toggleButton = document.getElementById("gateLoginPassToggle");
-  const isVisible = passwordInput.type === "text";
-
-  passwordInput.type = isVisible ? "password" : "text";
-  toggleButton.textContent = isVisible ? "Show" : "Hide";
-  toggleButton.setAttribute("aria-pressed", String(!isVisible));
+  togglePasswordVisibility("gateLoginPass", document.getElementById("gateLoginPassToggle"));
 }
 
-function fillGateDemo(type) {
-  if (type === "citizen") {
-    document.getElementById("gateLoginId").value = "09123456789";
-    document.getElementById("gateLoginPass").value = "user123";
+function togglePasswordVisibility(inputId, button) {
+  const input = document.getElementById(inputId);
+  const isVisible = input.type === "text";
+  input.type = isVisible ? "password" : "text";
+  button.textContent = isVisible ? "Show" : "Hide";
+  button.setAttribute("aria-pressed", String(!isVisible));
+}
+
+function fillGateDemo(role) {
+  const users = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+  let account;
+  if (role === "admin") {
+    account = users.find((user) => user.role === "admin");
   } else {
-    document.getElementById("gateLoginId").value = "admin";
-    document.getElementById("gateLoginPass").value = "admin123";
-  }
-}
-
-function handleGateLogin(e) {
-  e.preventDefault();
-  const id = document.getElementById("gateLoginId").value.trim();
-  const pass = document.getElementById("gateLoginPass").value.trim();
-
-  const users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
-  const user = users.find((u) => u.id === id && u.pass === pass);
-
-  if (user) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-    document.getElementById("authGateModal").classList.add("hidden");
-    updateRoleView();
-  } else {
-    alert("⚠️ Invalid Phone/Username or Password!");
-  }
-}
-
-function handleGateRegister(e) {
-  e.preventDefault();
-  const name = document.getElementById("gateRegName").value.trim();
-  const phone = document.getElementById("gateRegPhone").value.trim();
-  const isAdmin = document.getElementById("gateRegAdmin").checked;
-  const barangay = isAdmin ? "" : document.getElementById("gateRegBrgy").value;
-  const pass = document.getElementById("gateRegPass").value.trim();
-
-  const users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
-
-  if (users.some((u) => u.id.toLowerCase() === phone.toLowerCase())) {
-    alert(
-      "❌ MAY KATULAD NANG ACCOUNT!\n\nAng phone number na ito ay nakarehistro na sa sistema.",
+    account = users.find(
+      (user) => user.id === "demo-resident" && user.isDemoAccount === true,
     );
+    if (!account) {
+      if (
+        users.some(
+          (user) =>
+            user.id === "demo-resident" ||
+            normalizeContact(user.contactNumber) === "09000000001",
+        )
+      ) {
+        alert("The demo resident account details are already in use.");
+        return;
+      }
+      account = {
+        id: "demo-resident",
+        pass: "resident123",
+        name: "Demo Resident",
+        contactNumber: "09000000001",
+        barangay: "Isok 1 (Poblacion)",
+        role: "resident",
+        isDemoAccount: true,
+      };
+      users.push(account);
+      saveUsers(users);
+    }
+  }
+  if (!account) {
+    alert("No demo account is available for this role.");
+    return;
+  }
+  document.getElementById("gateLoginId").value =
+    account.email || account.contactNumber || account.id;
+  document.getElementById("gateLoginPass").value = account.pass || "";
+}
+
+function bytesToBase64(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)));
+}
+
+async function hashPassword(password, saltValue) {
+  if (!crypto?.subtle) {
+    throw new Error("Secure password hashing is unavailable in this browser context.");
+  }
+  const salt = saltValue
+    ? Uint8Array.from(atob(saltValue), (character) => character.charCodeAt(0))
+    : crypto.getRandomValues(new Uint8Array(16));
+  const material = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const hash = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt, iterations: PASSWORD_ITERATIONS },
+    material,
+    256,
+  );
+  return { salt: bytesToBase64(salt), hash: bytesToBase64(hash) };
+}
+
+async function verifyPassword(password, user) {
+  if (!user.passwordHash || !user.passwordSalt) return false;
+  const { hash } = await hashPassword(password, user.passwordSalt);
+  return hash === user.passwordHash;
+}
+
+function normalizeContact(value) {
+  return String(value || "").replace(/[\s()-]/g, "").toLowerCase();
+}
+
+function hasDuplicateIdentifier(users, identifier) {
+  const normalized = normalizeContact(identifier);
+  return users.some((user) =>
+    [user.id, user.email, user.contactNumber].some(
+      (value) => value && normalizeContact(value) === normalized,
+    ),
+  );
+}
+
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+
+function getCurrentUser() {
+  const session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+  if (!session) return null;
+  const users = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+  const user = users.find((account) => account.id === (session.userId || session.id));
+  return user && user.status !== "inactive" ? user : null;
+}
+
+function saveUsers(users) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+async function handleGateLogin(event) {
+  event.preventDefault();
+  const identifier = document.getElementById("gateLoginId").value.trim();
+  const password = document.getElementById("gateLoginPass").value;
+  const users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+  const account = users.find((user) => {
+    const candidate = identifier.toLowerCase();
+    return (
+      user.id?.toLowerCase() === candidate ||
+      user.email?.toLowerCase() === candidate ||
+      normalizeContact(user.contactNumber) === normalizeContact(identifier)
+    );
+  });
+  const validPassword =
+    account?.pass === password ||
+    (account?.passwordHash && (await verifyPassword(password, account)));
+  if (!account || !validPassword) {
+    alert("Invalid email/phone number or password.");
+    return;
+  }
+  if (account.status === "inactive") {
+    alert("This account is inactive. Contact an LGU Admin for assistance.");
     return;
   }
 
-  const newUser = {
-    id: phone,
-    pass: pass,
-    name: name,
-    barangay: barangay,
-    role: isAdmin ? "admin" : "citizen",
-  };
-  users.push(newUser);
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  localStorage.setItem(SESSION_KEY, JSON.stringify(newUser));
-
-  alert("✅ Matagumpay ang iyong pagpaparehistro!");
+  localStorage.setItem(SESSION_KEY, JSON.stringify(account));
   document.getElementById("authGateModal").classList.add("hidden");
   updateRoleView();
 }
 
+function handleGateRegister(event) {
+  event.preventDefault();
+  const name = document.getElementById("gateRegName").value.trim();
+  const id = document.getElementById("gateRegPhone").value.trim();
+  const barangay = document.getElementById("gateRegBrgy").value;
+  const pass = document.getElementById("gateRegPass").value;
+  if (!name || !id || !barangay || pass.length < 6) {
+    alert("Please complete all fields and use a password with at least 6 characters.");
+    return;
+  }
+
+  const users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+  if (hasDuplicateIdentifier(users, id)) {
+    alert("An account already uses this phone number or email address.");
+    return;
+  }
+
+  users.push({ id, pass, name, barangay, role: "resident" });
+  saveUsers(users);
+  document.getElementById("gateRegisterForm").reset();
+  toggleAuthGateTab("login");
+  document.getElementById("gateLoginId").value = id;
+  alert("Resident account created. You can now sign in.");
+}
+
 function handleLogout() {
-  localStorage.removeItem(SESSION_KEY);
+  clearSession();
   document.getElementById("authGateModal").classList.remove("hidden");
   updateRoleView();
 }
 
 function checkSession() {
-  const user = JSON.parse(localStorage.getItem(SESSION_KEY));
+  const user = getCurrentUser();
   if (user) {
     document.getElementById("authGateModal").classList.add("hidden");
     updateRoleView();
   } else {
-    document.getElementById("authGateModal").classList.remove("hidden");
+    clearSession();
+    updateRoleView();
   }
 }
 
 function updateRoleView() {
-  const user = JSON.parse(localStorage.getItem(SESSION_KEY));
+  const user = getCurrentUser();
   const roleNav = document.getElementById("roleNavLinks");
   const authHeaderNav = document.getElementById("authHeaderNav");
+  const portalBadge = document.getElementById("portalBadge");
+  const heroTitle = document.getElementById("hero-title");
+  const heroSubtitle = document.getElementById("hero-subtitle");
 
-  if (!user) return;
+  if (!user) {
+    clearSession();
+    roleNav.innerHTML = "";
+    authHeaderNav.innerHTML = "";
+    portalBadge.classList.add("hidden");
+    document.getElementById("authGateModal").classList.remove("hidden");
+    return;
+  }
+
+  const isAdmin = user.role === "admin";
+  const isResident = isResidentRole(user.role);
+  if (!isAdmin && !isResident) {
+    clearSession();
+    roleNav.innerHTML = "";
+    authHeaderNav.innerHTML = "";
+    document.getElementById("authGateModal").classList.remove("hidden");
+    return;
+  }
+  const roleLabel = getProfileRoleLabel(user.role);
+  portalBadge.classList.toggle("hidden", !isAdmin);
+  heroTitle.textContent = isAdmin
+    ? "Manage community reports"
+    : "Report a concern in your barangay";
+  heroSubtitle.textContent = isAdmin
+    ? "Review incoming reports, filter by status or barangay, and keep residents informed with timely updates."
+    : "Tell us what needs attention. Submit a report, keep your tracking code, and check for status updates here.";
 
   authHeaderNav.innerHTML = `
-                <div class="flex items-center gap-2">
-                    <span class="text-xs text-white font-bold">${user.name} (${user.role === "admin" ? "LGU Admin" : "Resident"})</span>
-                    <button onclick="handleLogout()" class="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-xs text-white font-semibold rounded">Logout</button>
-                </div>
-            `;
+    <div class="account-panel">
+      <button type="button" onclick="openProfile()" class="account-profile-button" title="Edit Profile" aria-label="Edit profile for ${escapeHtml(user.name || "User")}, ${escapeHtml(roleLabel)}">
+        <span class="header-avatar" aria-hidden="true">
+          <span class="avatar-fallback"><i class="fa-solid fa-user"></i></span>
+          ${getStoredProfilePhoto(user) ? `<img src="${getStoredProfilePhoto(user)}" alt="" />` : ""}
+        </span>
+        <span class="account-identity">
+          <span class="account-name">${escapeHtml(user.name || "User")}</span>
+          <span class="account-type">${escapeHtml(roleLabel)}</span>
+        </span>
+        <i class="fa-solid fa-pen-to-square account-edit-icon" aria-hidden="true"></i>
+      </button>
+      <div class="account-actions">
+        <button type="button" onclick="handleLogout()" class="account-button logout-action"><i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i><span>Log out</span></button>
+      </div>
+    </div>
+  `;
+  const headerAvatar = authHeaderNav.querySelector(".header-avatar img");
+  if (headerAvatar) {
+    headerAvatar.addEventListener("error", () => {
+      headerAvatar.hidden = true;
+      headerAvatar.previousElementSibling.classList.remove("hidden");
+    });
+  }
 
-  if (user.role === "citizen") {
+  if (isResident) {
     roleNav.innerHTML = `
-                    <button onclick="switchTab('submit')" id="nav-submit" class="nav-btn px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 bg-emerald-900 text-amber-300">
+                    <button type="button" id="mobileNavToggle" class="mobile-nav-toggle" aria-expanded="false" aria-controls="primaryNavLinks" onclick="toggleMobileNavigation()"><i class="fa-solid fa-bars" aria-hidden="true"></i><span>Menu</span></button>
+                    <div id="primaryNavLinks" class="primary-nav-links">
+                    <button type="button" onclick="switchTab('submit')" id="nav-submit" class="nav-btn min-h-11 flex-1 justify-center whitespace-nowrap px-3 sm:px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 bg-emerald-800 text-white">
                         <i class="fa-solid fa-pen-to-square"></i> Submit Complaint
                     </button>
-                    <button onclick="switchTab('track')" id="nav-track" class="nav-btn px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 text-emerald-100 hover:bg-emerald-700">
+                    <button type="button" onclick="switchTab('track')" id="nav-track" class="nav-btn min-h-11 flex-1 justify-center whitespace-nowrap px-3 sm:px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 text-emerald-100 hover:bg-emerald-800">
                         <i class="fa-solid fa-magnifying-glass"></i> Track Status
                     </button>
+                    <button type="button" onclick="switchTab('mine')" id="nav-mine" class="nav-btn min-h-11 flex-1 justify-center whitespace-nowrap px-3 sm:px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 text-emerald-100 hover:bg-emerald-800">
+                        <i class="fa-solid fa-folder-open"></i> My Complaints
+                    </button>
+                    </div>
                 `;
     document.getElementById("citizenName").value = user.name;
-    document.getElementById("citizenContact").value = user.id;
+    document.getElementById("citizenName").readOnly = true;
+    document.getElementById("citizenContact").value =
+      user.contactNumber || user.email || "";
+    document.getElementById("citizenContact").readOnly = true;
     document.getElementById("barangaySelect").value = user.barangay;
     switchTab("submit");
   } else if (user.role === "admin") {
     roleNav.innerHTML = `
-                    <button onclick="switchTab('admin')" id="nav-admin" class="nav-btn px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 bg-emerald-900 text-amber-300">
+                    <button type="button" id="mobileNavToggle" class="mobile-nav-toggle" aria-expanded="false" aria-controls="primaryNavLinks" onclick="toggleMobileNavigation()"><i class="fa-solid fa-bars" aria-hidden="true"></i><span>Menu</span></button>
+                    <div id="primaryNavLinks" class="primary-nav-links">
+                    <button type="button" onclick="switchTab('admin')" id="nav-admin" class="nav-btn min-h-11 flex-1 justify-center whitespace-nowrap px-3 sm:px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 bg-emerald-800 text-white">
                         <i class="fa-solid fa-chart-line"></i> Admin Dashboard
                     </button>
-                    <button onclick="switchTab('submit')" id="nav-submit" class="nav-btn px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 text-emerald-100 hover:bg-emerald-700">
-                        <i class="fa-solid fa-pen-to-square"></i> Submit Complaint
-                    </button>
-                    <button onclick="switchTab('track')" id="nav-track" class="nav-btn px-3.5 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 text-emerald-100 hover:bg-emerald-700">
-                        <i class="fa-solid fa-magnifying-glass"></i> Track Status
-                    </button>
+                    </div>
                 `;
     switchTab("admin");
   }
 }
 
+function isResidentRole(role) {
+  return role === "resident" || role === "citizen";
+}
+
+function getProfileRoleLabel(role) {
+  if (role === "admin") return "LGU Admin";
+  if (role === "citizen" || role === "resident") return "Resident";
+  return String(role || "User")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function switchTab(tab) {
-  const user = JSON.parse(localStorage.getItem(SESSION_KEY));
-  if (tab === "admin" && user?.role !== "admin") {
+  const user = getCurrentUser();
+  const roleNav = document.getElementById("roleNavLinks");
+  if (!user || (user.role === "admin" && tab !== "admin")) {
+    alert("This dashboard is not available for your account.");
+    if (user?.role === "admin") switchTab("admin");
+    return;
+  }
+  if (tab === "admin" && !isAdmin()) {
     alert(
       "⛔ UNAUTHORIZED ACCESS!\n\nAng Admin Dashboard ay para lamang sa mga opisyal na LGU Administrative Officers.",
     );
     return;
   }
+  if (["submit", "track", "mine"].includes(tab) && !isResidentRole(user.role)) {
+    alert("Resident pages are only available to resident accounts.");
+    switchTab("admin");
+    return;
+  }
+  if (tab === "mine" && !isResidentRole(user.role)) return;
 
   document
     .querySelectorAll(".tab-content")
@@ -318,16 +469,344 @@ function switchTab(tab) {
   document.getElementById(`tab-${tab}`).classList.add("active");
 
   document.querySelectorAll(".nav-btn").forEach((btn) => {
-    btn.classList.remove("bg-emerald-900", "text-amber-300");
-    btn.classList.add("text-emerald-100", "hover:bg-emerald-700");
+    btn.classList.remove("bg-emerald-800", "text-white");
+    btn.classList.add("text-emerald-100", "hover:bg-emerald-800");
   });
   const activeBtn = document.getElementById(`nav-${tab}`);
   if (activeBtn) {
-    activeBtn.classList.remove("text-emerald-100", "hover:bg-emerald-700");
-    activeBtn.classList.add("bg-emerald-900", "text-amber-300");
+    activeBtn.classList.remove("text-emerald-100", "hover:bg-emerald-800");
+    activeBtn.classList.add("bg-emerald-800", "text-white");
   }
 
-  if (tab === "admin") renderAdminTable();
+  roleNav.classList.remove("is-open");
+  document.getElementById("mobileNavToggle")?.setAttribute("aria-expanded", "false");
+  if (tab === "admin") {
+    renderAdminTable();
+  }
+  if (tab === "mine") renderMyReports();
+}
+
+function toggleMobileNavigation() {
+  const nav = document.getElementById("roleNavLinks");
+  const toggle = document.getElementById("mobileNavToggle");
+  const isOpen = nav.classList.toggle("is-open");
+  toggle.setAttribute("aria-expanded", String(isOpen));
+}
+
+function openProfile() {
+  const user = getCurrentUser();
+  if (!user) return;
+
+  document.getElementById("profileName").value = user.name || "";
+  document.getElementById("profileDisplayName").textContent = user.name || "Your profile";
+  document.getElementById("profileEmail").value = user.email || "";
+  document.getElementById("profileContact").value = user.contactNumber || user.id || "";
+  document.getElementById("profileRole").textContent = getProfileRoleLabel(user.role);
+  const canEditBarangay = ["citizen", "resident"].includes(user.role);
+  document.getElementById("profileBarangayField").classList.toggle("hidden", !canEditBarangay);
+  const barangaySelect = document.getElementById("profileBarangay");
+  barangaySelect.required = canEditBarangay;
+  barangaySelect.value = user.barangay || "";
+  pendingProfilePhoto = getStoredProfilePhoto(user) || "";
+  profilePhotoChanged = false;
+  document.getElementById("profilePhotoInput").value = "";
+  setProfileFeedback("");
+  renderProfilePhotoPreview(pendingProfilePhoto);
+  const modal = document.getElementById("profileModal");
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+}
+
+function closeProfile() {
+  const modal = document.getElementById("profileModal");
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
+  profilePhotoChanged = false;
+}
+
+function saveProfile(event) {
+  event.preventDefault();
+  const user = getCurrentUser();
+  if (!user) return;
+  const activeTab = document.querySelector(".tab-content.active")?.id;
+  const name = document.getElementById("profileName").value.trim();
+  const email = document.getElementById("profileEmail").value.trim().toLowerCase();
+  if (!name) {
+    setProfileFeedback("Ilagay ang buong pangalan bago mag-save.", true);
+    document.getElementById("profileName").focus();
+    return;
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    setProfileFeedback("Ilagay ang valid na email address.", true);
+    document.getElementById("profileEmail").focus();
+    return;
+  }
+
+  const updatedUser = {
+    ...user,
+    name,
+    email,
+    barangay: ["citizen", "resident"].includes(user.role)
+      ? document.getElementById("profileBarangay").value
+      : user.barangay,
+  };
+  if (profilePhotoChanged) {
+    if (pendingProfilePhoto) {
+      updatedUser.profilePhoto = pendingProfilePhoto;
+    } else {
+      delete updatedUser.profilePhoto;
+    }
+  }
+  const users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+  const userIndex = users.findIndex((account) => account.id === user.id);
+  if (userIndex < 0) {
+    setProfileFeedback(
+      "Hindi ma-save ang profile dahil hindi makita ang account. Mag-log in muli.",
+      true,
+    );
+    return;
+  }
+  if (
+    email &&
+    users.some(
+      (account, index) => index !== userIndex && account.email?.toLowerCase() === email,
+    )
+  ) {
+    setProfileFeedback("May account na gumagamit ng email address na ito.", true);
+    return;
+  }
+
+  const updatedAccount = { ...users[userIndex], ...updatedUser };
+  if (profilePhotoChanged && !pendingProfilePhoto) {
+    delete updatedAccount.profilePhoto;
+  }
+  users[userIndex] = updatedAccount;
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+
+  if (isResidentRole(updatedUser.role)) {
+    document.getElementById("citizenName").value = updatedAccount.name;
+    document.getElementById("citizenContact").value =
+      updatedAccount.contactNumber || updatedAccount.id || "";
+    document.getElementById("barangaySelect").value = updatedAccount.barangay;
+  }
+  updateRoleView();
+  if (activeTab) switchTab(activeTab.replace("tab-", ""));
+  profilePhotoChanged = false;
+  renderProfilePhotoPreview(getStoredProfilePhoto(updatedAccount) || "");
+  setProfileFeedback("Na-save ang profile mo.");
+}
+
+function cancelProfileEdit() {
+  closeProfile();
+}
+
+function setProfileFeedback(message, isError = false) {
+  const feedback = document.getElementById("profileFeedback");
+  feedback.textContent = message;
+  feedback.classList.toggle("hidden", !message);
+  feedback.classList.toggle("text-rose-700", isError);
+  feedback.classList.toggle("text-emerald-700", Boolean(message) && !isError);
+  feedback.setAttribute("role", isError ? "alert" : "status");
+}
+
+function getStoredProfilePhoto(user) {
+  const photo = user?.profilePhoto;
+  return typeof photo === "string" &&
+    photo.length <= 700000 &&
+    /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(photo)
+    ? photo
+    : "";
+}
+
+function renderProfilePhotoPreview(photo) {
+  const image = document.getElementById("profileAvatarPreview");
+  const fallback = document.getElementById("profileAvatarFallback");
+  const removeButton = document.getElementById("removeProfilePhotoButton");
+  if (photo) {
+    image.src = photo;
+    image.classList.remove("hidden");
+    fallback.classList.add("hidden");
+    removeButton.classList.remove("hidden");
+    image.onerror = () => {
+      image.removeAttribute("src");
+      image.classList.add("hidden");
+      fallback.classList.remove("hidden");
+      removeButton.classList.add("hidden");
+    };
+  } else {
+    image.removeAttribute("src");
+    image.classList.add("hidden");
+    fallback.classList.remove("hidden");
+    removeButton.classList.add("hidden");
+  }
+}
+
+function handleProfilePhotoSelection(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  const validExtensions = ["jpg", "jpeg", "png", "webp"];
+  const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+  if (
+    !validExtensions.includes(extension) ||
+    (file.type && !validTypes.includes(file.type.toLowerCase()))
+  ) {
+    event.target.value = "";
+    setProfileFeedback("Pumili ng JPG, JPEG, PNG, o WEBP na image.", true);
+    return;
+  }
+  if (file.size > MAX_PROFILE_PHOTO_BYTES) {
+    event.target.value = "";
+    setProfileFeedback("Lumampas sa 5 MB ang photo. Pumili ng mas maliit na file.", true);
+    return;
+  }
+
+  setProfileFeedback("");
+  prepareProfilePhoto(file)
+    .then((photo) => {
+      pendingProfilePhoto = photo;
+      profilePhotoChanged = true;
+      renderProfilePhotoPreview(photo);
+    })
+    .catch((error) => {
+      event.target.value = "";
+      setProfileFeedback(error.message, true);
+    });
+}
+
+function prepareProfilePhoto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Hindi mabasa ang photo file."));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Hindi ma-process ang photo na ito."));
+      image.onload = () => {
+        const maxDimension = 480;
+        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Hindi ma-process ang photo sa browser na ito."));
+          return;
+        }
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const compressedPhoto = canvas.toDataURL("image/jpeg", 0.72);
+        if (compressedPhoto.length > 700000) {
+          reject(new Error("Masyadong malaki ang photo pagkatapos i-compress. Pumili ng mas maliit na larawan."));
+          return;
+        }
+        resolve(compressedPhoto);
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function removeProfilePhoto() {
+  if (!pendingProfilePhoto) return;
+  if (!confirm("Alisin ang profile photo na ito?")) return;
+  pendingProfilePhoto = "";
+  profilePhotoChanged = true;
+  document.getElementById("profilePhotoInput").value = "";
+  renderProfilePhotoPreview("");
+  setProfileFeedback("Aalisin ang photo kapag pinili mo ang Save Changes.");
+}
+
+function openAdminAccountModal() {
+  if (!isAdmin()) {
+    alert("Admin access is required to create officer accounts.");
+    return;
+  }
+  document.getElementById("adminAccountForm").reset();
+  setAdminAccountFeedback("");
+  const modal = document.getElementById("adminAccountModal");
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+}
+
+function closeAdminAccountModal() {
+  const modal = document.getElementById("adminAccountModal");
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
+}
+
+function setAdminAccountFeedback(message, isError = false) {
+  const feedback = document.getElementById("adminAccountFeedback");
+  feedback.textContent = message;
+  feedback.classList.toggle("hidden", !message);
+  feedback.classList.toggle("text-rose-700", isError);
+  feedback.classList.toggle("text-emerald-700", Boolean(message) && !isError);
+  feedback.setAttribute("role", isError ? "alert" : "status");
+}
+
+function createAdminAccount(event) {
+  event.preventDefault();
+  if (!isAdmin()) {
+    closeAdminAccountModal();
+    alert("Admin access is required to create officer accounts.");
+    return;
+  }
+
+  const name = document.getElementById("adminOfficerName").value.trim();
+  const identifier = document.getElementById("adminOfficerContact").value.trim();
+  const barangay = document.getElementById("adminOfficerBarangay").value;
+  const pass = document.getElementById("adminOfficerPassword").value;
+  if (!name || !identifier || !barangay || pass.length < 6) {
+    setAdminAccountFeedback("Complete all fields and use a password with at least 6 characters.", true);
+    return;
+  }
+
+  const users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
+  if (hasDuplicateIdentifier(users, identifier)) {
+    setAdminAccountFeedback("An account already uses this mobile number or email.", true);
+    return;
+  }
+
+  users.push({ id: identifier, pass, name, barangay, role: "admin" });
+  saveUsers(users);
+
+  document.getElementById("adminAccountForm").reset();
+  setAdminAccountFeedback("Nagawa ang LGU Admin Officer account. Maaari na siyang mag-sign in gamit ang inilagay na contact at password.");
+}
+
+function renderMyReports() {
+  const user = getCurrentUser();
+  if (!isResidentRole(user?.role)) return;
+  const userContact = user.contactNumber || user.id;
+  const reports = getReports().filter((report) => report.contact === userContact);
+  const container = document.getElementById("myReportsList");
+  container.innerHTML = reports.length
+    ? reports
+        .map(
+          (report) => `
+            <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p class="font-mono text-sm font-bold text-emerald-800">${escapeHtml(report.id)}</p>
+                  <h3 class="mt-1 font-semibold text-slate-900">${escapeHtml(report.category)}</h3>
+                  <p class="mt-1 text-sm text-slate-600">Brgy. ${escapeHtml(report.barangay)} · Filed ${escapeHtml(report.date)}</p>
+                </div>
+                <span class="inline-flex w-fit rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(report.status)}">${escapeHtml(report.status)}</span>
+              </div>
+              <p class="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">${escapeHtml(report.description)}</p>
+              <p class="mt-3 text-xs font-semibold text-slate-500">Dispatch priority: ${escapeHtml(report.priority || "Normal")}</p>
+            </article>
+          `,
+        )
+        .join("")
+    : `<div class="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
+         <i class="fa-solid fa-inbox text-3xl text-slate-300" aria-hidden="true"></i>
+         <h3 class="mt-3 font-semibold text-slate-800">Wala ka pang naisusumiteng complaint</h3>
+         <p class="mt-1 text-sm text-slate-500">Kapag nagsumite ka, makikita rito ang tracking code at status nito.</p>
+         <button type="button" onclick="switchTab('submit')" class="mt-4 min-h-11 rounded-lg bg-emerald-800 px-4 text-sm font-semibold text-white hover:bg-emerald-900">Submit a complaint</button>
+       </div>`;
 }
 
 function prepareEvidencePhoto(file) {
@@ -388,6 +867,11 @@ function prepareEvidencePhoto(file) {
 
 async function handleFormSubmit(e) {
   e.preventDefault();
+  const user = getCurrentUser();
+  if (!isResidentRole(user?.role)) {
+    alert("Only signed-in residents can submit complaints.");
+    return;
+  }
   const form = e.currentTarget;
   const submitButton = form.querySelector('button[type="submit"]');
   const evidenceFile = document.getElementById("evidencePhoto").files[0];
@@ -402,11 +886,15 @@ async function handleFormSubmit(e) {
     return;
   }
 
-  const code = `BOAC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+  const db = getReports();
+  let code;
+  do {
+    code = `BOAC-${new Date().getFullYear()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+  } while (db.some((report) => report.id === code));
   const newRecord = {
     id: code,
-    name: document.getElementById("citizenName").value,
-    contact: document.getElementById("citizenContact").value,
+    name: user.name,
+    contact: user.contactNumber || user.email,
     barangay: document.getElementById("barangaySelect").value,
     category: document.getElementById("categorySelect").value,
     description: document.getElementById("descriptionInput").value,
@@ -415,7 +903,6 @@ async function handleFormSubmit(e) {
     status: "Pending Review",
   };
 
-  const db = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
   db.unshift(newRecord);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
@@ -445,12 +932,12 @@ function handleTrackSearch(e) {
   if (e) e.preventDefault();
   const code = document.getElementById("trackInput").value.trim().toUpperCase();
   const db = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  const match = db.find((i) => i.id === code);
+  const match = db.find((i) => String(i.id || "").toUpperCase() === code);
   const container = document.getElementById("trackResultContainer");
   container.classList.remove("hidden");
 
   if (!match) {
-    container.innerHTML = `<div class="p-4 bg-red-50 text-red-700 text-xs rounded-lg text-center font-bold">Code Not Found</div>`;
+    container.innerHTML = `<div class="p-4 bg-red-50 text-red-700 text-xs rounded-lg text-center font-bold">Code not found or unavailable for this account.</div>`;
     return;
   }
 
@@ -505,16 +992,48 @@ function initAdminDashboard() {
     .addEventListener("click", (event) => {
       if (event.target.id === "evidenceViewerModal") closeEvidenceViewer();
     });
+  document
+    .getElementById("profileModal")
+    .addEventListener("click", (event) => {
+      if (event.target.id === "profileModal") closeProfile();
+    });
+  document
+    .getElementById("adminAccountModal")
+    .addEventListener("click", (event) => {
+      if (event.target.id === "adminAccountModal") closeAdminAccountModal();
+    });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeEvidenceViewer();
       closeReportViewer();
+      closeProfile();
+      closeAdminAccountModal();
     }
   });
 }
 
 function getReports() {
   return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+}
+
+function statusBadgeClass(status) {
+  const classes = {
+    "Pending Review": "bg-amber-100 text-amber-900",
+    "In Progress": "bg-sky-100 text-sky-900",
+    Resolved: "bg-emerald-100 text-emerald-900",
+    Closed: "bg-slate-100 text-slate-700",
+  };
+  return classes[status] || "bg-slate-100 text-slate-700";
+}
+
+function priorityBadgeClass(priority) {
+  const classes = {
+    Urgent: "bg-rose-100 text-rose-900",
+    High: "bg-orange-100 text-orange-900",
+    Normal: "bg-sky-100 text-sky-900",
+    Low: "bg-slate-100 text-slate-700",
+  };
+  return classes[priority] || classes.Normal;
 }
 
 function populateReportFilter(select, values, placeholder) {
@@ -529,15 +1048,35 @@ function populateReportFilter(select, values, placeholder) {
 }
 
 function renderAdminTable() {
+  if (!isAdmin()) return;
   const db = getReports();
   const tbody = document.getElementById("adminTableBody");
+  document.getElementById("statTotal").textContent = db.length;
+  document.getElementById("statPending").textContent = db.filter(
+    (report) => report.status === "Pending Review",
+  ).length;
+  document.getElementById("statProgress").textContent = db.filter(
+    (report) => report.status === "In Progress",
+  ).length;
+  document.getElementById("statPriority").textContent = db.filter(
+    (report) => ["Urgent", "High"].includes(report.priority),
+  ).length;
+  document.getElementById("statResolved").textContent = db.filter(
+    (report) => report.status === "Resolved" || report.status === "Closed",
+  ).length;
   const statusFilter = document.getElementById("adminStatusFilter");
+  const priorityFilter = document.getElementById("adminPriorityFilter");
   const categoryFilter = document.getElementById("adminCategoryFilter");
   const barangayFilter = document.getElementById("adminBarangayFilter");
   populateReportFilter(
     statusFilter,
     [...REPORT_STATUSES, ...db.map((report) => report.status)],
     "All statuses",
+  );
+  populateReportFilter(
+    priorityFilter,
+    [...REPORT_PRIORITIES, ...db.map((report) => report.priority || "Normal")],
+    "All priorities",
   );
   populateReportFilter(
     categoryFilter,
@@ -555,6 +1094,7 @@ function renderAdminTable() {
     .value.trim()
     .toLocaleLowerCase();
   const status = document.getElementById("adminStatusFilter").value;
+  const priority = priorityFilter.value;
   const category = categoryFilter.value;
   const barangay = barangayFilter.value;
   const filtered = db.filter((report) => {
@@ -566,6 +1106,8 @@ function renderAdminTable() {
       report.category,
       report.date,
       report.status,
+      report.priority || "Normal",
+      report.assignedDepartment || "",
       report.description,
     ]
       .join(" ")
@@ -573,6 +1115,7 @@ function renderAdminTable() {
     return (
       (!keyword || searchableText.includes(keyword)) &&
       (!status || report.status === status) &&
+      (!priority || (report.priority || "Normal") === priority) &&
       (!category || report.category === category) &&
       (!barangay || report.barangay === barangay)
     );
@@ -589,8 +1132,10 @@ function renderAdminTable() {
                     <td class="py-3 px-4">${escapeHtml(report.name)}<br><span class="text-slate-500">${escapeHtml(report.contact)}</span></td>
                     <td class="py-3 px-4">Brgy. ${escapeHtml(report.barangay)}</td>
                     <td class="py-3 px-4">${escapeHtml(report.category)}</td>
+                    <td class="py-3 px-4"><span class="inline-flex whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full font-bold ${priorityBadgeClass(report.priority)}">${escapeHtml(report.priority || "Normal")}</span></td>
+                    <td class="py-3 px-4">${escapeHtml(report.assignedDepartment || "Unassigned")}</td>
                     <td class="py-3 px-4">${escapeHtml(report.date)}</td>
-                    <td class="py-3 px-4"><span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold">${escapeHtml(report.status)}</span></td>
+                    <td class="py-3 px-4"><span class="inline-flex whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full font-bold ${statusBadgeClass(report.status)}">${escapeHtml(report.status)}</span></td>
                     <td class="py-3 px-4 text-right">
                         <button type="button" data-report-id="${escapeHtml(report.id)}" class="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded font-bold">View / Update</button>
                     </td>
@@ -599,12 +1144,12 @@ function renderAdminTable() {
         )
         .join("")
     : `
-                <tr><td colspan="7" class="py-8 px-4 text-center text-slate-500">No reports match these filters.</td></tr>
+                <tr><td colspan="9" class="py-8 px-4 text-center text-slate-500">No reports match these filters.</td></tr>
             `;
 }
 
 function isAdmin() {
-  return JSON.parse(localStorage.getItem(SESSION_KEY))?.role === "admin";
+  return getCurrentUser()?.role === "admin";
 }
 
 function openReportViewer(reportId) {
@@ -620,6 +1165,24 @@ function openReportViewer(reportId) {
     statusSelect.add(new Option(report.status, report.status));
   }
   statusSelect.value = report.status;
+  const prioritySelect = document.getElementById("reportPrioritySelect");
+  const priority = report.priority || "Normal";
+  if (![...prioritySelect.options].some((option) => option.value === priority)) {
+    prioritySelect.add(new Option(priority, priority));
+  }
+  prioritySelect.value = priority;
+  const departmentSelect = document.getElementById("reportDepartmentSelect");
+  if (
+    report.assignedDepartment &&
+    ![...departmentSelect.options].some(
+      (option) => option.value === report.assignedDepartment,
+    )
+  ) {
+    departmentSelect.add(
+      new Option(report.assignedDepartment, report.assignedDepartment),
+    );
+  }
+  departmentSelect.value = report.assignedDepartment || "";
   document.getElementById("reportStatusFeedback").classList.add("hidden");
 
   const photo =
@@ -635,6 +1198,8 @@ function openReportViewer(reportId) {
                     <p><strong>Contact</strong><br>${escapeHtml(report.contact)}</p>
                     <p><strong>Barangay</strong><br>Brgy. ${escapeHtml(report.barangay)}</p>
                     <p><strong>Category</strong><br>${escapeHtml(report.category)}</p>
+                    <p><strong>Dispatch Priority</strong><br>${escapeHtml(report.priority || "Normal")}</p>
+                    <p><strong>Assigned Municipal Unit</strong><br>${escapeHtml(report.assignedDepartment || "Not yet assigned")}</p>
                     <p class="sm:col-span-2"><strong>Current Status</strong><br>${escapeHtml(report.status)}</p>
                     <p class="sm:col-span-2 whitespace-pre-wrap"><strong>Detailed Description</strong><br>${escapeHtml(report.description)}</p>
                 </div>
@@ -675,6 +1240,10 @@ function handleReportStatusUpdate(event) {
   if (!report) return;
 
   report.status = document.getElementById("reportStatusSelect").value;
+  report.priority = document.getElementById("reportPrioritySelect").value;
+  report.assignedDepartment = document.getElementById(
+    "reportDepartmentSelect",
+  ).value;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(reports));
   } catch (error) {
@@ -686,6 +1255,6 @@ function handleReportStatusUpdate(event) {
   renderAdminTable();
   openReportViewer(activeReportId);
   const feedback = document.getElementById("reportStatusFeedback");
-  feedback.textContent = "Report status updated.";
+  feedback.textContent = "Dispatch update saved.";
   feedback.classList.remove("hidden");
 }
