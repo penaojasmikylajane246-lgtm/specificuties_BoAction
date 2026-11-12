@@ -1,9 +1,0 @@
-body { font-family: 'Inter', sans-serif; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-
-.auth-tab-active {
-  background: #fff;
-  color: #174b36;
-  box-shadow: 0 1px 3px rgb(15 23 42 / 12%);
-}
