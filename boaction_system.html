@@ -49,11 +49,10 @@
             <h1
               class="max-w-lg text-5xl font-extrabold leading-[1.08] tracking-tight xl:text-6xl"
             >
-              A better Boac starts with listening.
+              May Hinaing? BoAction Na!
             </h1>
             <p class="mt-6 max-w-md text-base leading-7 text-[#52715d]">
-              Share what matters in your barangay and help build a more
-              responsive community for everyone.
+              Ipaalam ang mga suliranin sa inyong pamayanan at subaybayan ang mga isinumiteng reklamo sa BoAction.
             </p>
 
             <div
@@ -219,7 +218,6 @@
                   </button>
                 </div>
               </div>
-
               <button
                 type="submit"
                 class="flex w-full items-center justify-center gap-2 rounded-xl bg-[#174b36] py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-[#103b2a] focus:outline-none focus:ring-4 focus:ring-[#174b36]/20"
@@ -231,10 +229,10 @@
                 <p class="mb-2 text-center text-xs font-medium text-slate-400">
                   Quick demo access
                 </p>
-                <div class="flex justify-center gap-3">
+                <div class="flex flex-wrap justify-center gap-x-3 gap-y-2">
                   <button
                     type="button"
-                    onclick="fillGateDemo('citizen')"
+                    onclick="fillGateDemo('resident')"
                     class="text-xs font-semibold text-[#477252] hover:underline"
                   >
                     Demo Resident
@@ -286,17 +284,6 @@
                   class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#477252] focus:ring-4 focus:ring-[#477252]/10"
                 />
               </div>
-              <label
-                class="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700"
-              >
-                <input
-                  type="checkbox"
-                  id="gateRegAdmin"
-                  onchange="toggleGateRegisterRole()"
-                  class="h-4 w-4 rounded border-slate-300 text-[#174b36] focus:ring-[#477252]"
-                />
-                <span>I am an LGU Admin Officer</span>
-              </label>
               <div id="gateRegBarangayField">
                 <label
                   for="gateRegBrgy"
@@ -321,6 +308,7 @@
                   type="password"
                   id="gateRegPass"
                   required
+                  minlength="6"
                   autocomplete="new-password"
                   placeholder="At least 6 characters"
                   class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#477252] focus:ring-4 focus:ring-[#477252]/10"
@@ -335,7 +323,7 @@
             </form>
 
             <p class="mt-8 text-center text-xs leading-5 text-slate-400">
-              Secure access for the BoAction community portal
+              Access the BoAction community portal
             </p>
           </div>
         </main>
@@ -352,77 +340,64 @@
     </div>
 
     <!-- MAIN HEADER -->
-    <header class="bg-emerald-800 text-white shadow-md sticky top-0 z-30">
+    <header class="bg-emerald-900 text-white shadow-md sticky top-0 z-30">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="flex justify-between items-center h-20">
-          <!-- Branding -->
+        <div class="header-layout">
           <div
-            class="flex items-center space-x-3 cursor-pointer"
+            class="header-brand cursor-pointer"
             onclick="switchTab('submit')"
           >
             <div
-              class="w-12 h-12 rounded-full bg-white text-emerald-800 flex items-center justify-center font-bold text-xl shadow-inner border-2 border-amber-400"
+              class="brand-mark"
+              aria-hidden="true"
             >
               <i class="fa-solid fa-landmark"></i>
             </div>
-            <div>
-              <div class="flex items-center space-x-2">
-                <span class="font-extrabold text-2xl tracking-tight text-white"
-                  >BoAction</span
-                >
-                <span
-                  class="bg-amber-400 text-emerald-950 text-xs px-2 py-0.5 rounded-full font-bold"
-                  >LGU PORTAL</span
-                >
+            <div class="brand-copy">
+              <div class="brand-title-row">
+                <span class="brand-title">BoAction</span>
+                <span id="portalBadge" class="portal-badge hidden">LGU PORTAL</span>
               </div>
-              <p class="text-xs text-emerald-200">
+              <p class="brand-description">
                 Municipality of Boac, Province of Marinduque
               </p>
             </div>
           </div>
 
-          <!-- Navigation Links (Dynamic by Role) -->
-          <div class="hidden md:flex items-center space-x-4">
-            <nav id="roleNavLinks" class="flex space-x-2"></nav>
-
-            <div
-              id="authHeaderNav"
-              class="flex items-center space-x-2 border-l border-emerald-700 pl-4"
-            ></div>
-          </div>
+          <nav id="roleNavLinks" aria-label="Main navigation"></nav>
+          <div id="authHeaderNav" aria-label="User account"></div>
         </div>
       </div>
     </header>
 
     <!-- HERO SECTION -->
     <div
-      class="bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 text-white py-8 px-4 sm:px-6 lg:px-8 border-b border-emerald-700 shadow-inner"
+      class="bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-900 text-white py-7 px-4 sm:px-6 lg:px-8 border-b border-emerald-700"
     >
       <div
         class="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4"
       >
         <div>
           <h1 id="hero-title" class="text-2xl sm:text-3xl font-bold">
-            Municipal Incident & Complaint Reporting
+            Report a concern in your barangay
           </h1>
-          <p id="hero-subtitle" class="text-emerald-200 text-sm mt-1">
-            Empowering Boac residents across all 61 barangays to report
-            infrastructure and public service concerns directly to local
-            authorities.
+          <p id="hero-subtitle" class="text-emerald-100 text-sm mt-2 max-w-2xl leading-6">
+            Tell us what needs attention. Submit a report, keep your tracking
+            code, and check for status updates here.
           </p>
         </div>
       </div>
     </div>
 
     <!-- MAIN CONTAINER -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow w-full">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex-grow w-full">
       <!-- TAB 1: RESIDENT SUBMIT COMPLAINT FORM -->
       <section id="tab-submit" class="tab-content active">
         <div
-          class="max-w-3xl mx-auto bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden"
+          class="max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden"
         >
           <div
-            class="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between"
+            class="bg-white px-4 sm:px-6 py-5 border-b border-slate-200 flex items-center justify-between"
           >
             <h2
               class="text-lg font-semibold text-slate-800 flex items-center gap-2"
@@ -430,15 +405,15 @@
               <i class="fa-solid fa-file-circle-plus text-emerald-700"></i> New
               Incident Report Form
             </h2>
-            <span class="text-xs font-medium text-slate-500"
-              >* Required fields</span
+            <span class="text-right text-xs font-medium text-slate-500"
+              >About 2 minutes<br />* Required fields</span
             >
           </div>
 
           <form
             id="complaintForm"
             onsubmit="handleFormSubmit(event)"
-            class="p-6 space-y-6"
+            class="p-4 sm:p-6 space-y-6"
           >
             <div>
               <h3
@@ -615,6 +590,19 @@
         </div>
       </section>
 
+      <!-- RESIDENT REPORT HISTORY -->
+      <section id="tab-mine" class="tab-content">
+        <div class="mx-auto max-w-4xl space-y-5">
+          <div>
+            <h2 class="text-xl font-bold text-slate-900">My complaints</h2>
+            <p class="mt-1 text-sm text-slate-600">
+              Review the reports you submitted and their latest status.
+            </p>
+          </div>
+          <div id="myReportsList" class="space-y-3"></div>
+        </div>
+      </section>
+
       <!-- TAB 3: ADMIN DISPATCH DASHBOARD -->
       <section id="tab-admin" class="tab-content">
         <div class="space-y-6">
@@ -629,17 +617,42 @@
                 Overview & Dispatch
               </h2>
               <p class="text-xs text-slate-500">
-                Authorized Access: LGU Boac Administrative Officers & Department
-                Heads
+                Authorized Access: LGU Admin Officers
               </p>
             </div>
+            <button type="button" onclick="openAdminAccountModal()" class="min-h-11 shrink-0 rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-900 focus:outline-none focus:ring-4 focus:ring-emerald-700/20">
+              <i class="fa-solid fa-user-plus mr-2" aria-hidden="true"></i>Add LGU Admin Officer
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+            <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">All reports</p>
+              <p id="statTotal" class="mt-2 text-3xl font-bold text-slate-900">0</p>
+            </article>
+            <article class="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+              <p class="text-xs font-semibold uppercase tracking-wide text-amber-800">Awaiting review</p>
+              <p id="statPending" class="mt-2 text-3xl font-bold text-amber-900">0</p>
+            </article>
+            <article class="rounded-xl border border-sky-200 bg-sky-50 p-4 shadow-sm">
+              <p class="text-xs font-semibold uppercase tracking-wide text-sky-800">In progress</p>
+              <p id="statProgress" class="mt-2 text-3xl font-bold text-sky-900">0</p>
+            </article>
+            <article class="rounded-xl border border-rose-200 bg-rose-50 p-4 shadow-sm">
+              <p class="text-xs font-semibold uppercase tracking-wide text-rose-800">High priority</p>
+              <p id="statPriority" class="mt-2 text-3xl font-bold text-rose-900">0</p>
+            </article>
+            <article class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+              <p class="text-xs font-semibold uppercase tracking-wide text-emerald-800">Resolved / closed</p>
+              <p id="statResolved" class="mt-2 text-3xl font-bold text-emerald-900">0</p>
+            </article>
           </div>
 
           <div
             class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"
           >
             <div
-              class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-4 border-b border-slate-200"
+              class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 p-4 border-b border-slate-200"
             >
               <div class="lg:col-span-1">
                 <label
@@ -654,6 +667,24 @@
                   oninput="renderAdminTable()"
                   class="w-full rounded-lg border-slate-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-600 outline-none"
                 />
+              </div>
+              <div>
+                <label
+                  for="adminPriorityFilter"
+                  class="block text-xs font-medium text-slate-700 mb-1"
+                  >Priority</label
+                >
+                <select
+                  id="adminPriorityFilter"
+                  onchange="renderAdminTable()"
+                  class="w-full rounded-lg border-slate-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-600 outline-none bg-white"
+                >
+                  <option value="">All priorities</option>
+                  <option value="Urgent">Urgent</option>
+                  <option value="High">High</option>
+                  <option value="Normal">Normal</option>
+                  <option value="Low">Low</option>
+                </select>
               </div>
               <div>
                 <label
@@ -717,6 +748,8 @@
                     <th class="py-3 px-4">Citizen / Contact</th>
                     <th class="py-3 px-4">Barangay</th>
                     <th class="py-3 px-4">Category</th>
+                    <th class="py-3 px-4">Priority</th>
+                    <th class="py-3 px-4">Assigned Unit</th>
                     <th class="py-3 px-4">Date Filed</th>
                     <th class="py-3 px-4">Current Status</th>
                     <th class="py-3 px-4 text-right">Actions</th>
@@ -732,6 +765,50 @@
         </div>
       </section>
     </main>
+
+    <!-- ADMIN ACCOUNT CREATION -->
+    <div
+      id="adminAccountModal"
+      class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="adminAccountTitle"
+    >
+      <div class="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+        <div class="flex items-start justify-between border-b border-slate-200 p-5">
+          <div>
+            <h2 id="adminAccountTitle" class="text-lg font-bold text-slate-900">Add LGU Admin Officer</h2>
+            <p class="mt-1 text-sm text-slate-500">Create an officer account for this BoAction demo.</p>
+          </div>
+          <button type="button" onclick="closeAdminAccountModal()" aria-label="Close" class="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          </button>
+        </div>
+        <form id="adminAccountForm" onsubmit="createAdminAccount(event)" class="space-y-4 p-5">
+          <div>
+            <label for="adminOfficerName" class="mb-1 block text-sm font-semibold text-slate-700">Full Name</label>
+            <input id="adminOfficerName" type="text" required maxlength="80" autocomplete="name" class="w-full border border-slate-300 px-3 py-2.5 text-sm" />
+          </div>
+          <div>
+            <label for="adminOfficerContact" class="mb-1 block text-sm font-semibold text-slate-700">Mobile Number / Email</label>
+            <input id="adminOfficerContact" type="text" required maxlength="120" autocomplete="username" class="w-full border border-slate-300 px-3 py-2.5 text-sm" />
+          </div>
+          <div>
+            <label for="adminOfficerBarangay" class="mb-1 block text-sm font-semibold text-slate-700">Assigned Barangay</label>
+            <select id="adminOfficerBarangay" required class="w-full border border-slate-300 px-3 py-2.5 text-sm"></select>
+          </div>
+          <div>
+            <label for="adminOfficerPassword" class="mb-1 block text-sm font-semibold text-slate-700">Temporary Password</label>
+            <input id="adminOfficerPassword" type="password" required minlength="6" autocomplete="new-password" class="w-full border border-slate-300 px-3 py-2.5 text-sm" />
+          </div>
+          <p id="adminAccountFeedback" class="hidden text-sm font-medium" aria-live="polite"></p>
+          <div class="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+            <button type="button" onclick="closeAdminAccountModal()" class="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
+            <button type="submit" class="min-h-11 rounded-lg bg-emerald-800 px-5 text-sm font-semibold text-white hover:bg-emerald-900">Create Admin Account</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <!-- ADMIN REPORT VIEWER -->
     <div
@@ -762,9 +839,9 @@
         <div id="reportViewerContent" class="p-5 space-y-4 text-sm"></div>
         <form
           onsubmit="handleReportStatusUpdate(event)"
-          class="flex flex-col sm:flex-row sm:items-end gap-3 p-5 border-t border-slate-200 bg-slate-50"
+          class="grid grid-cols-1 gap-3 p-5 border-t border-slate-200 bg-slate-50 sm:grid-cols-2"
         >
-          <div class="flex-1">
+          <div>
             <label
               for="reportStatusSelect"
               class="block text-xs font-medium text-slate-700 mb-1"
@@ -781,17 +858,109 @@
               <option value="Closed">Closed</option>
             </select>
           </div>
+          <div>
+            <label for="reportPrioritySelect" class="block text-xs font-medium text-slate-700 mb-1">Dispatch Priority</label>
+            <select id="reportPrioritySelect" required class="w-full rounded-lg border-slate-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-600 outline-none bg-white">
+              <option value="Urgent">Urgent</option>
+              <option value="High">High</option>
+              <option value="Normal">Normal</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+          <div class="sm:col-span-2">
+            <label for="reportDepartmentSelect" class="block text-xs font-medium text-slate-700 mb-1">Assigned Municipal Unit</label>
+            <select id="reportDepartmentSelect" required class="w-full rounded-lg border-slate-300 border px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-600 outline-none bg-white">
+              <option value="">Select a responsible unit</option>
+              <option>Municipal Engineering Office</option>
+              <option>Municipal Environment and Natural Resources Office</option>
+              <option>Municipal Disaster Risk Reduction and Management Office</option>
+              <option>Municipal Health Office</option>
+              <option>Municipal General Services Office</option>
+              <option>Municipal Social Welfare and Development Office</option>
+              <option>Municipal Agriculture Office</option>
+              <option>Municipal Mayor's Office</option>
+            </select>
+          </div>
           <p
             id="reportStatusFeedback"
-            class="hidden text-xs font-semibold text-emerald-700 sm:mr-auto"
+            class="hidden text-xs font-semibold text-emerald-700 sm:col-span-2"
             aria-live="polite"
           ></p>
           <button
             type="submit"
-            class="bg-emerald-800 hover:bg-emerald-900 text-white px-5 py-2 rounded-lg text-sm font-semibold"
+            class="min-h-11 rounded-lg bg-emerald-800 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-900 sm:col-span-2"
           >
-            Save Status
+            Save Dispatch Update
           </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- USER PROFILE -->
+    <div
+      id="profileModal"
+      class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profileTitle"
+    >
+      <div class="profile-card w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+        <div class="flex items-start justify-between border-b border-slate-200 p-5">
+          <div>
+            <h2 id="profileTitle" class="text-lg font-bold text-slate-900">My profile</h2>
+            <p class="mt-1 text-sm text-slate-500">Manage your account details and profile photo.</p>
+          </div>
+          <button type="button" onclick="closeProfile()" aria-label="Close profile" class="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <form id="profileForm" onsubmit="saveProfile(event)" class="profile-form space-y-4 p-5">
+          <section class="profile-photo-section" aria-label="Profile picture">
+            <div class="profile-photo-preview">
+              <span id="profileAvatarFallback" class="avatar-fallback" aria-hidden="true"><i class="fa-solid fa-user"></i></span>
+              <img id="profileAvatarPreview" class="hidden" alt="Profile photo preview" />
+            </div>
+            <div class="profile-photo-actions">
+              <p id="profileDisplayName" class="font-semibold text-slate-900">Your profile</p>
+              <input id="profilePhotoInput" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" class="hidden" onchange="handleProfilePhotoSelection(event)" />
+              <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <button id="profilePhotoButton" type="button" onclick="document.getElementById('profilePhotoInput').click()" class="min-h-10 rounded-lg border border-emerald-700 px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-50">
+                  <i class="fa-solid fa-camera mr-1" aria-hidden="true"></i> Change Photo
+                </button>
+                <button id="removeProfilePhotoButton" type="button" onclick="removeProfilePhoto()" class="hidden min-h-10 text-xs font-semibold text-rose-700 underline decoration-rose-300 underline-offset-2 hover:text-rose-900">
+                  Remove photo
+                </button>
+              </div>
+            </div>
+          </section>
+          <div class="profile-fields-grid">
+            <div class="profile-field">
+              <label for="profileName" class="mb-1 block text-sm font-semibold text-slate-700">Full Name</label>
+              <input id="profileName" type="text" required maxlength="80" autocomplete="name" oninput="document.getElementById('profileDisplayName').textContent = this.value || 'Your profile'" class="w-full border border-slate-300 px-3 py-2.5 text-sm" />
+            </div>
+            <div class="profile-field">
+              <label for="profileEmail" class="mb-1 block text-sm font-semibold text-slate-700">Email Address <span class="font-normal text-slate-500">(optional)</span></label>
+              <input id="profileEmail" type="email" maxlength="120" autocomplete="email" placeholder="Add an email address" class="w-full border border-slate-300 px-3 py-2.5 text-sm" />
+            </div>
+            <div class="profile-field">
+              <label for="profileContact" class="mb-1 block text-sm font-semibold text-slate-700">Mobile Number / Login ID</label>
+              <input id="profileContact" type="text" readonly class="w-full border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600" />
+              <p class="profile-verification-note">Changing this login ID requires account verification. Contact support to update it.</p>
+            </div>
+            <div id="profileBarangayField">
+              <label for="profileBarangay" class="mb-1 block text-sm font-semibold text-slate-700">Barangay</label>
+              <select id="profileBarangay" required class="w-full border border-slate-300 px-3 py-2.5 text-sm"></select>
+            </div>
+          </div>
+          <div class="profile-role-row">
+            <span class="text-sm font-semibold text-slate-700">Account type</span>
+            <span id="profileRole" class="profile-role-badge"></span>
+          </div>
+          <p id="profileFeedback" class="hidden text-sm font-medium" aria-live="polite"></p>
+          <div class="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+            <button id="cancelProfileButton" type="button" onclick="cancelProfileEdit()" class="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
+            <button id="saveProfileButton" type="submit" class="min-h-11 rounded-lg bg-emerald-800 px-5 text-sm font-semibold text-white hover:bg-emerald-900">Save Changes</button>
+          </div>
         </form>
       </div>
     </div>
