@@ -62,8 +62,7 @@ const PASSWORD_ITERATIONS = 210000;
 const REPORT_STATUSES = ["Pending Review", "In Progress", "Resolved", "Closed"];
 const REPORT_PRIORITIES = ["Urgent", "High", "Normal", "Low"];
 const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
-let pendingProfilePhoto = "";
-let profilePhotoChanged = false;
+let profileDraft = null;
 let activeReportId = null;
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -497,21 +496,26 @@ function openProfile() {
   const user = getCurrentUser();
   if (!user) return;
 
-  document.getElementById("profileName").value = user.name || "";
+  profileDraft = {
+    name: user.name || "",
+    email: user.email || "",
+    barangay: user.barangay || "",
+    profilePhoto: getStoredProfilePhoto(user) || "",
+    profilePhotoChanged: false,
+  };
+  document.getElementById("profileName").value = profileDraft.name;
   document.getElementById("profileDisplayName").textContent = user.name || "Your profile";
-  document.getElementById("profileEmail").value = user.email || "";
+  document.getElementById("profileEmail").value = profileDraft.email;
   document.getElementById("profileContact").value = user.contactNumber || user.id || "";
   document.getElementById("profileRole").textContent = getProfileRoleLabel(user.role);
   const canEditBarangay = ["citizen", "resident"].includes(user.role);
   document.getElementById("profileBarangayField").classList.toggle("hidden", !canEditBarangay);
   const barangaySelect = document.getElementById("profileBarangay");
   barangaySelect.required = canEditBarangay;
-  barangaySelect.value = user.barangay || "";
-  pendingProfilePhoto = getStoredProfilePhoto(user) || "";
-  profilePhotoChanged = false;
+  barangaySelect.value = profileDraft.barangay;
   document.getElementById("profilePhotoInput").value = "";
   setProfileFeedback("");
-  renderProfilePhotoPreview(pendingProfilePhoto);
+  renderProfilePhotoPreview(profileDraft.profilePhoto);
   const modal = document.getElementById("profileModal");
   modal.classList.remove("hidden");
   modal.classList.add("flex");
@@ -521,16 +525,24 @@ function closeProfile() {
   const modal = document.getElementById("profileModal");
   modal.classList.add("hidden");
   modal.classList.remove("flex");
-  profilePhotoChanged = false;
+  profileDraft = null;
+}
+
+function updateProfileDraft() {
+  if (!profileDraft) return;
+  profileDraft.name = document.getElementById("profileName").value;
+  profileDraft.email = document.getElementById("profileEmail").value;
+  profileDraft.barangay = document.getElementById("profileBarangay").value;
 }
 
 function saveProfile(event) {
   event.preventDefault();
   const user = getCurrentUser();
-  if (!user) return;
+  if (!user || !profileDraft) return;
+  updateProfileDraft();
   const activeTab = document.querySelector(".tab-content.active")?.id;
-  const name = document.getElementById("profileName").value.trim();
-  const email = document.getElementById("profileEmail").value.trim().toLowerCase();
+  const name = profileDraft.name.trim();
+  const email = profileDraft.email.trim().toLowerCase();
   if (!name) {
     setProfileFeedback("Ilagay ang buong pangalan bago mag-save.", true);
     document.getElementById("profileName").focus();
@@ -547,12 +559,12 @@ function saveProfile(event) {
     name,
     email,
     barangay: ["citizen", "resident"].includes(user.role)
-      ? document.getElementById("profileBarangay").value
+      ? profileDraft.barangay
       : user.barangay,
   };
-  if (profilePhotoChanged) {
-    if (pendingProfilePhoto) {
-      updatedUser.profilePhoto = pendingProfilePhoto;
+  if (profileDraft.profilePhotoChanged) {
+    if (profileDraft.profilePhoto) {
+      updatedUser.profilePhoto = profileDraft.profilePhoto;
     } else {
       delete updatedUser.profilePhoto;
     }
@@ -577,7 +589,7 @@ function saveProfile(event) {
   }
 
   const updatedAccount = { ...users[userIndex], ...updatedUser };
-  if (profilePhotoChanged && !pendingProfilePhoto) {
+  if (profileDraft.profilePhotoChanged && !profileDraft.profilePhoto) {
     delete updatedAccount.profilePhoto;
   }
   users[userIndex] = updatedAccount;
@@ -591,7 +603,15 @@ function saveProfile(event) {
   }
   updateRoleView();
   if (activeTab) switchTab(activeTab.replace("tab-", ""));
-  profilePhotoChanged = false;
+  profileDraft = {
+    name: updatedAccount.name || "",
+    email: updatedAccount.email || "",
+    barangay: updatedAccount.barangay || "",
+    profilePhoto: getStoredProfilePhoto(updatedAccount) || "",
+    profilePhotoChanged: false,
+  };
+  document.getElementById("profileDisplayName").textContent =
+    updatedAccount.name || "Your profile";
   renderProfilePhotoPreview(getStoredProfilePhoto(updatedAccount) || "");
   setProfileFeedback("Na-save ang profile mo.");
 }
@@ -644,6 +664,8 @@ function renderProfilePhotoPreview(photo) {
 function handleProfilePhotoSelection(event) {
   const file = event.target.files?.[0];
   if (!file) return;
+  const draft = profileDraft;
+  if (!draft) return;
 
   const extension = file.name.split(".").pop()?.toLowerCase();
   const validExtensions = ["jpg", "jpeg", "png", "webp"];
@@ -665,11 +687,13 @@ function handleProfilePhotoSelection(event) {
   setProfileFeedback("");
   prepareProfilePhoto(file)
     .then((photo) => {
-      pendingProfilePhoto = photo;
-      profilePhotoChanged = true;
+      if (profileDraft !== draft) return;
+      draft.profilePhoto = photo;
+      draft.profilePhotoChanged = true;
       renderProfilePhotoPreview(photo);
     })
     .catch((error) => {
+      if (profileDraft !== draft) return;
       event.target.value = "";
       setProfileFeedback(error.message, true);
     });
@@ -710,10 +734,10 @@ function prepareProfilePhoto(file) {
 }
 
 function removeProfilePhoto() {
-  if (!pendingProfilePhoto) return;
+  if (!profileDraft?.profilePhoto) return;
   if (!confirm("Alisin ang profile photo na ito?")) return;
-  pendingProfilePhoto = "";
-  profilePhotoChanged = true;
+  profileDraft.profilePhoto = "";
+  profileDraft.profilePhotoChanged = true;
   document.getElementById("profilePhotoInput").value = "";
   renderProfilePhotoPreview("");
   setProfileFeedback("Aalisin ang photo kapag pinili mo ang Save Changes.");
@@ -992,6 +1016,12 @@ function initAdminDashboard() {
     .addEventListener("click", (event) => {
       if (event.target.id === "evidenceViewerModal") closeEvidenceViewer();
     });
+  document
+    .getElementById("profileForm")
+    .addEventListener("input", updateProfileDraft);
+  document
+    .getElementById("profileForm")
+    .addEventListener("change", updateProfileDraft);
   document
     .getElementById("profileModal")
     .addEventListener("click", (event) => {
