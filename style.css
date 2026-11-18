@@ -22,16 +22,14 @@ header .header-layout {
 }
 
 .brand-mark {
-  display: grid;
+  display: block;
   width: 2.85rem;
   height: 2.85rem;
   flex: 0 0 auto;
-  place-items: center;
   border: 2px solid #fbbf24;
   border-radius: 50%;
   background: #fff;
-  color: #065f46;
-  font-size: 1.2rem;
+  object-fit: cover;
 }
 
 .brand-copy,
