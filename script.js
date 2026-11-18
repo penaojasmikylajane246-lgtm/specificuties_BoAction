@@ -58,10 +58,19 @@ const BOAC_BARANGAYS = [
 const STORAGE_KEY = "boaction_complaints_db";
 const USERS_KEY = "boaction_users_db";
 const SESSION_KEY = "boaction_current_user";
+const NOTIFICATIONS_KEY = "boaction_notifications_db";
 const PASSWORD_ITERATIONS = 210000;
-const REPORT_STATUSES = ["Pending Review", "In Progress", "Resolved", "Closed"];
+const REPORT_STATUSES = [
+  "Pending Verification",
+  "Verified",
+  "Assigned",
+  "In Progress",
+  "Resolved",
+  "Rejected",
+];
 const REPORT_PRIORITIES = ["Urgent", "High", "Normal", "Low"];
 const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
+const MAX_EVIDENCE_PHOTOS = 5;
 let profileDraft = null;
 let activeReportId = null;
 
@@ -71,6 +80,8 @@ document.addEventListener("DOMContentLoaded", () => {
   initUsers();
   initDatabase();
   checkSession();
+  renderEvidencePreviews();
+  window.addEventListener("storage", handleCrossTabUpdate);
 });
 
 function initBarangays() {
@@ -114,7 +125,51 @@ function initDatabase() {
     return;
   }
   const reports = JSON.parse(localStorage.getItem(STORAGE_KEY));
-  if (!Array.isArray(reports)) throw new Error("Stored complaint records are invalid.");
+  if (!Array.isArray(reports))
+    throw new Error("Stored complaint records are invalid.");
+  let migrated = false;
+  const defaultOfficer = JSON.parse(
+    localStorage.getItem(USERS_KEY) || "[]",
+  ).find((user) => user.role === "admin");
+  reports.forEach((report) => {
+    if (report.status === "Pending Review") {
+      report.status = "Pending Verification";
+      migrated = true;
+    } else if (report.status === "Closed") {
+      report.status = "Resolved";
+      report.verified = true;
+      migrated = true;
+    }
+    if (
+      ["In Progress", "Resolved"].includes(report.status) &&
+      !report.verified
+    ) {
+      report.verified = true;
+      migrated = true;
+    }
+    if (report.verified && !report.assignedPersonnelId && defaultOfficer) {
+      report.assignedPersonnelId = defaultOfficer.id;
+      report.assignedPersonnelName = defaultOfficer.name;
+      migrated = true;
+    }
+    if (
+      report.verified &&
+      !report.assignedPersonnelBarangay &&
+      defaultOfficer
+    ) {
+      report.assignedPersonnelBarangay = defaultOfficer.barangay || "";
+      migrated = true;
+    }
+    if (report.evidencePhoto && !report.evidencePhotos) {
+      report.evidencePhotos = [report.evidencePhoto];
+      migrated = true;
+    }
+    if (!report.messages) {
+      report.messages = [];
+      migrated = true;
+    }
+  });
+  if (migrated) localStorage.setItem(STORAGE_KEY, JSON.stringify(reports));
 }
 
 function toggleAuthGateTab(tab) {
@@ -147,7 +202,10 @@ function toggleAuthGateTab(tab) {
 }
 
 function toggleGatePasswordVisibility() {
-  togglePasswordVisibility("gateLoginPass", document.getElementById("gateLoginPassToggle"));
+  togglePasswordVisibility(
+    "gateLoginPass",
+    document.getElementById("gateLoginPassToggle"),
+  );
 }
 
 function togglePasswordVisibility(inputId, button) {
@@ -206,7 +264,9 @@ function bytesToBase64(bytes) {
 
 async function hashPassword(password, saltValue) {
   if (!crypto?.subtle) {
-    throw new Error("Secure password hashing is unavailable in this browser context.");
+    throw new Error(
+      "Secure password hashing is unavailable in this browser context.",
+    );
   }
   const salt = saltValue
     ? Uint8Array.from(atob(saltValue), (character) => character.charCodeAt(0))
@@ -233,7 +293,9 @@ async function verifyPassword(password, user) {
 }
 
 function normalizeContact(value) {
-  return String(value || "").replace(/[\s()-]/g, "").toLowerCase();
+  return String(value || "")
+    .replace(/[\s()-]/g, "")
+    .toLowerCase();
 }
 
 function hasDuplicateIdentifier(users, identifier) {
@@ -253,7 +315,9 @@ function getCurrentUser() {
   const session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
   if (!session) return null;
   const users = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
-  const user = users.find((account) => account.id === (session.userId || session.id));
+  const user = users.find(
+    (account) => account.id === (session.userId || session.id),
+  );
   return user && user.status !== "inactive" ? user : null;
 }
 
@@ -298,7 +362,9 @@ function handleGateRegister(event) {
   const barangay = document.getElementById("gateRegBrgy").value;
   const pass = document.getElementById("gateRegPass").value;
   if (!name || !id || !barangay || pass.length < 6) {
-    alert("Please complete all fields and use a password with at least 6 characters.");
+    alert(
+      "Please complete all fields and use a password with at least 6 characters.",
+    );
     return;
   }
 
@@ -360,6 +426,7 @@ function updateRoleView() {
     return;
   }
   const roleLabel = getProfileRoleLabel(user.role);
+  updateNotificationBadge();
   portalBadge.classList.toggle("hidden", !isAdmin);
   heroTitle.textContent = isAdmin
     ? "Manage community reports"
@@ -407,6 +474,9 @@ function updateRoleView() {
                     <button type="button" onclick="switchTab('mine')" id="nav-mine" class="nav-btn min-h-11 flex-1 justify-center whitespace-nowrap px-3 sm:px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 text-emerald-100 hover:bg-emerald-800">
                         <i class="fa-solid fa-folder-open"></i> My Complaints
                     </button>
+                    <button type="button" onclick="switchTab('notifications')" id="nav-notifications" class="nav-btn min-h-11 flex-1 justify-center whitespace-nowrap px-3 sm:px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 text-emerald-100 hover:bg-emerald-800">
+                        <i class="fa-solid fa-bell"></i> Notifications <span id="notificationCount" class="hidden rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-emerald-950"></span>
+                    </button>
                     </div>
                 `;
     document.getElementById("citizenName").value = user.name;
@@ -422,6 +492,9 @@ function updateRoleView() {
                     <div id="primaryNavLinks" class="primary-nav-links">
                     <button type="button" onclick="switchTab('admin')" id="nav-admin" class="nav-btn min-h-11 flex-1 justify-center whitespace-nowrap px-3 sm:px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 bg-emerald-800 text-white">
                         <i class="fa-solid fa-chart-line"></i> Admin Dashboard
+                    </button>
+                    <button type="button" onclick="switchTab('notifications')" id="nav-notifications" class="nav-btn min-h-11 flex-1 justify-center whitespace-nowrap px-3 sm:px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 text-emerald-100 hover:bg-emerald-800">
+                        <i class="fa-solid fa-bell"></i> Notifications <span id="notificationCount" class="hidden rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-emerald-950"></span>
                     </button>
                     </div>
                 `;
@@ -444,7 +517,10 @@ function getProfileRoleLabel(role) {
 function switchTab(tab) {
   const user = getCurrentUser();
   const roleNav = document.getElementById("roleNavLinks");
-  if (!user || (user.role === "admin" && tab !== "admin")) {
+  if (
+    !user ||
+    (user.role === "admin" && !["admin", "notifications"].includes(tab))
+  ) {
     alert("This dashboard is not available for your account.");
     if (user?.role === "admin") switchTab("admin");
     return;
@@ -478,11 +554,14 @@ function switchTab(tab) {
   }
 
   roleNav.classList.remove("is-open");
-  document.getElementById("mobileNavToggle")?.setAttribute("aria-expanded", "false");
+  document
+    .getElementById("mobileNavToggle")
+    ?.setAttribute("aria-expanded", "false");
   if (tab === "admin") {
     renderAdminTable();
   }
   if (tab === "mine") renderMyReports();
+  if (tab === "notifications") renderNotifications();
 }
 
 function toggleMobileNavigation() {
@@ -504,12 +583,18 @@ function openProfile() {
     profilePhotoChanged: false,
   };
   document.getElementById("profileName").value = profileDraft.name;
-  document.getElementById("profileDisplayName").textContent = user.name || "Your profile";
+  document.getElementById("profileDisplayName").textContent =
+    user.name || "Your profile";
   document.getElementById("profileEmail").value = profileDraft.email;
-  document.getElementById("profileContact").value = user.contactNumber || user.id || "";
-  document.getElementById("profileRole").textContent = getProfileRoleLabel(user.role);
+  document.getElementById("profileContact").value =
+    user.contactNumber || user.id || "";
+  document.getElementById("profileRole").textContent = getProfileRoleLabel(
+    user.role,
+  );
   const canEditBarangay = ["citizen", "resident"].includes(user.role);
-  document.getElementById("profileBarangayField").classList.toggle("hidden", !canEditBarangay);
+  document
+    .getElementById("profileBarangayField")
+    .classList.toggle("hidden", !canEditBarangay);
   const barangaySelect = document.getElementById("profileBarangay");
   barangaySelect.required = canEditBarangay;
   barangaySelect.value = profileDraft.barangay;
@@ -581,10 +666,14 @@ function saveProfile(event) {
   if (
     email &&
     users.some(
-      (account, index) => index !== userIndex && account.email?.toLowerCase() === email,
+      (account, index) =>
+        index !== userIndex && account.email?.toLowerCase() === email,
     )
   ) {
-    setProfileFeedback("May account na gumagamit ng email address na ito.", true);
+    setProfileFeedback(
+      "May account na gumagamit ng email address na ito.",
+      true,
+    );
     return;
   }
 
@@ -680,7 +769,10 @@ function handleProfilePhotoSelection(event) {
   }
   if (file.size > MAX_PROFILE_PHOTO_BYTES) {
     event.target.value = "";
-    setProfileFeedback("Lumampas sa 5 MB ang photo. Pumili ng mas maliit na file.", true);
+    setProfileFeedback(
+      "Lumampas sa 5 MB ang photo. Pumili ng mas maliit na file.",
+      true,
+    );
     return;
   }
 
@@ -705,10 +797,14 @@ function prepareProfilePhoto(file) {
     reader.onerror = () => reject(new Error("Hindi mabasa ang photo file."));
     reader.onload = () => {
       const image = new Image();
-      image.onerror = () => reject(new Error("Hindi ma-process ang photo na ito."));
+      image.onerror = () =>
+        reject(new Error("Hindi ma-process ang photo na ito."));
       image.onload = () => {
         const maxDimension = 480;
-        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+        const scale = Math.min(
+          1,
+          maxDimension / Math.max(image.width, image.height),
+        );
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(image.width * scale));
         canvas.height = Math.max(1, Math.round(image.height * scale));
@@ -722,7 +818,11 @@ function prepareProfilePhoto(file) {
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
         const compressedPhoto = canvas.toDataURL("image/jpeg", 0.72);
         if (compressedPhoto.length > 700000) {
-          reject(new Error("Masyadong malaki ang photo pagkatapos i-compress. Pumili ng mas maliit na larawan."));
+          reject(
+            new Error(
+              "Masyadong malaki ang photo pagkatapos i-compress. Pumili ng mas maliit na larawan.",
+            ),
+          );
           return;
         }
         resolve(compressedPhoto);
@@ -779,17 +879,25 @@ function createAdminAccount(event) {
   }
 
   const name = document.getElementById("adminOfficerName").value.trim();
-  const identifier = document.getElementById("adminOfficerContact").value.trim();
+  const identifier = document
+    .getElementById("adminOfficerContact")
+    .value.trim();
   const barangay = document.getElementById("adminOfficerBarangay").value;
   const pass = document.getElementById("adminOfficerPassword").value;
   if (!name || !identifier || !barangay || pass.length < 6) {
-    setAdminAccountFeedback("Complete all fields and use a password with at least 6 characters.", true);
+    setAdminAccountFeedback(
+      "Complete all fields and use a password with at least 6 characters.",
+      true,
+    );
     return;
   }
 
   const users = JSON.parse(localStorage.getItem(USERS_KEY)) || [];
   if (hasDuplicateIdentifier(users, identifier)) {
-    setAdminAccountFeedback("An account already uses this mobile number or email.", true);
+    setAdminAccountFeedback(
+      "An account already uses this mobile number or email.",
+      true,
+    );
     return;
   }
 
@@ -797,14 +905,17 @@ function createAdminAccount(event) {
   saveUsers(users);
 
   document.getElementById("adminAccountForm").reset();
-  setAdminAccountFeedback("Nagawa ang LGU Admin Officer account. Maaari na siyang mag-sign in gamit ang inilagay na contact at password.");
+  setAdminAccountFeedback(
+    "Nagawa ang LGU Admin Officer account. Maaari na siyang mag-sign in gamit ang inilagay na contact at password.",
+  );
 }
 
 function renderMyReports() {
   const user = getCurrentUser();
   if (!isResidentRole(user?.role)) return;
-  const userContact = user.contactNumber || user.id;
-  const reports = getReports().filter((report) => report.contact === userContact);
+  const reports = getReports().filter((report) =>
+    isReportOwnedBy(report, user),
+  );
   const container = document.getElementById("myReportsList");
   container.innerHTML = reports.length
     ? reports
@@ -820,7 +931,11 @@ function renderMyReports() {
                 <span class="inline-flex w-fit rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(report.status)}">${escapeHtml(report.status)}</span>
               </div>
               <p class="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">${escapeHtml(report.description)}</p>
-              <p class="mt-3 text-xs font-semibold text-slate-500">Dispatch priority: ${escapeHtml(report.priority || "Normal")}</p>
+              <p class="mt-3 text-xs font-semibold text-slate-600">Assigned personnel: ${escapeHtml(getAssignedPersonnelLabel(report) || "Awaiting verification and assignment")}</p>
+              ${report.rejectionReason ? `<p class="mt-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-800"><strong>Reason:</strong> ${escapeHtml(report.rejectionReason)}</p>` : ""}
+              ${renderReportPhotos(report.evidencePhotos || (report.evidencePhoto ? [report.evidencePhoto] : []), "Submitted evidence")}
+              ${renderReportPhotos(report.resolutionPhotos || [], "Resolution proof")}
+              ${renderReportConversation(report, user)}
             </article>
           `,
         )
@@ -833,12 +948,204 @@ function renderMyReports() {
        </div>`;
 }
 
-function prepareEvidencePhoto(file) {
-  if (!file) return Promise.resolve(null);
+function isReportOwnedBy(report, user) {
+  return report.ownerId
+    ? report.ownerId === user.id
+    : report.contact === (user.contactNumber || user.id);
+}
+
+function getAssignedPersonnelLabel(report) {
+  if (!report.assignedPersonnelName) return "";
+  return report.assignedPersonnelBarangay
+    ? `${report.assignedPersonnelName} · Brgy. ${report.assignedPersonnelBarangay}`
+    : report.assignedPersonnelName;
+}
+
+function renderReportPhotos(photos, label) {
+  const validPhotos = photos.filter(isStoredEvidencePhoto);
+  if (!validPhotos.length) return "";
+  return `<div class="mt-4"><h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">${escapeHtml(label)}</h4><div class="grid grid-cols-3 gap-2">${validPhotos.map((photo, index) => `<button type="button" onclick="openEvidenceViewer('${photo}')" class="overflow-hidden rounded-lg border border-slate-200" aria-label="View ${escapeHtml(label.toLowerCase())} photo ${index + 1}"><img src="${photo}" alt="${escapeHtml(label)} photo ${index + 1}" class="h-24 w-full object-cover"></button>`).join("")}</div></div>`;
+}
+
+function isStoredEvidencePhoto(photo) {
+  return (
+    typeof photo === "string" &&
+    /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(photo)
+  );
+}
+
+function renderReportConversation(report, user) {
+  const messages = report.messages || [];
+  return `<section class="mt-4 border-t border-slate-200 pt-4">
+    <h4 class="font-semibold text-slate-800">Complaint updates and messages</h4>
+    <div class="mt-3 space-y-2">${messages.length ? messages.map((message) => `<article class="rounded-lg ${message.authorId === user.id ? "bg-emerald-50" : "bg-slate-50"} p-3"><p class="text-xs font-semibold text-slate-700">${escapeHtml(message.authorName)} · ${escapeHtml(new Date(message.createdAt).toLocaleString())}</p><p class="mt-1 whitespace-pre-wrap text-sm text-slate-700">${escapeHtml(message.text)}</p></article>`).join("") : '<p class="text-sm text-slate-500">No messages yet.</p>'}</div>
+    ${report.status !== "Rejected" ? `<form onsubmit="sendComplaintMessage(event, '${escapeHtml(report.id)}')" class="mt-3 flex flex-col gap-2 sm:flex-row"><label class="sr-only" for="message-${escapeHtml(report.id)}">Message about this complaint</label><textarea id="message-${escapeHtml(report.id)}" maxlength="1000" required rows="2" class="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Ask a question or share an update"></textarea><button type="submit" class="min-h-10 rounded-lg bg-emerald-800 px-4 text-sm font-semibold text-white hover:bg-emerald-900">Send message</button></form>` : ""}
+  </section>`;
+}
+
+function getNotifications() {
+  const notifications = JSON.parse(
+    localStorage.getItem(NOTIFICATIONS_KEY) || "[]",
+  );
+  if (!Array.isArray(notifications))
+    throw new Error("Stored notifications are invalid.");
+  return notifications;
+}
+
+function addNotification(userId, title, body, reportId) {
+  const notifications = getNotifications();
+  notifications.unshift({
+    id: crypto.randomUUID(),
+    userId,
+    title,
+    body,
+    reportId,
+    createdAt: new Date().toISOString(),
+    read: false,
+  });
+  try {
+    localStorage.setItem(
+      NOTIFICATIONS_KEY,
+      JSON.stringify(notifications.slice(0, 300)),
+    );
+  } catch (error) {
+    console.error("Unable to save a complaint notification.", error);
+    alert(
+      "The complaint was saved, but its notification could not be stored in this browser.",
+    );
+  }
+  updateNotificationBadge();
+}
+
+function notifyResident(report, title, body) {
+  const users = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
+  const recipient =
+    users.find((user) => user.id === report.ownerId) ||
+    users.find((user) => (user.contactNumber || user.id) === report.contact);
+  if (recipient) addNotification(recipient.id, title, body, report.id);
+}
+
+function notifyOfficials(title, body, reportId) {
+  JSON.parse(localStorage.getItem(USERS_KEY) || "[]")
+    .filter((user) => user.role === "admin")
+    .forEach((user) => addNotification(user.id, title, body, reportId));
+}
+
+function updateNotificationBadge() {
+  const user = getCurrentUser();
+  const badge = document.getElementById("notificationCount");
+  if (!badge || !user) return;
+  const unread = getNotifications().filter(
+    (item) => item.userId === user.id && !item.read,
+  ).length;
+  badge.textContent = unread > 99 ? "99+" : String(unread);
+  badge.classList.toggle("hidden", unread === 0);
+}
+
+function renderNotifications() {
+  const user = getCurrentUser();
+  const container = document.getElementById("notificationsList");
+  if (!user || !container) return;
+  const notifications = getNotifications().filter(
+    (item) => item.userId === user.id,
+  );
+  container.innerHTML = notifications.length
+    ? notifications
+        .map(
+          (item) =>
+            `<article class="rounded-xl border ${item.read ? "border-slate-200 bg-white" : "border-emerald-200 bg-emerald-50"} p-4 shadow-sm"><div class="flex items-start justify-between gap-3"><div><h3 class="font-semibold text-slate-900">${escapeHtml(item.title)}</h3><p class="mt-1 text-sm text-slate-600">${escapeHtml(item.body)}</p><p class="mt-2 text-xs text-slate-500">${escapeHtml(new Date(item.createdAt).toLocaleString())}</p></div>${item.reportId ? `<button type="button" onclick="openNotificationReport('${escapeHtml(item.reportId)}')" class="shrink-0 rounded-lg border border-emerald-700 px-3 py-2 text-xs font-semibold text-emerald-800">View complaint</button>` : ""}</div></article>`,
+        )
+        .join("")
+    : '<div class="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">You are all caught up. New complaint updates will appear here.</div>';
+  updateNotificationBadge();
+}
+
+function markNotificationsRead() {
+  const user = getCurrentUser();
+  if (!user) return;
+  const notifications = getNotifications().map((item) =>
+    item.userId === user.id ? { ...item, read: true } : item,
+  );
+  localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
+  renderNotifications();
+}
+
+function openNotificationReport(reportId) {
+  const user = getCurrentUser();
+  const report = getReports().find((item) => item.id === reportId);
+  if (!user || !report) return;
+  if (isAdmin()) {
+    switchTab("admin");
+    openReportViewer(reportId);
+  } else if (isReportOwnedBy(report, user)) {
+    switchTab("mine");
+  }
+}
+
+function sendComplaintMessage(event, reportId) {
+  event.preventDefault();
+  const user = getCurrentUser();
+  const reports = getReports();
+  const report = reports.find((item) => item.id === reportId);
+  if (!user || !report || report.status === "Rejected") return;
+  if (!isAdmin() && !isReportOwnedBy(report, user)) return;
   if (
-    !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)
+    isAdmin() &&
+    report.assignedPersonnelId &&
+    report.assignedPersonnelId !== user.id
   ) {
-    return Promise.reject(new Error("Choose a JPEG, PNG, WebP, or GIF image."));
+    alert("Only the assigned personnel can message this resident.");
+    return;
+  }
+  const input = document.getElementById(`message-${reportId}`);
+  const text = input.value.trim();
+  if (!text) return;
+  report.messages = report.messages || [];
+  report.messages.push({
+    authorId: user.id,
+    authorName: user.name,
+    text,
+    createdAt: new Date().toISOString(),
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(reports));
+  if (isAdmin()) {
+    notifyResident(
+      report,
+      "New message from barangay personnel",
+      `${user.name}: ${text.slice(0, 140)}`,
+    );
+  } else {
+    const recipientIds = report.assignedPersonnelId
+      ? [report.assignedPersonnelId]
+      : JSON.parse(localStorage.getItem(USERS_KEY) || "[]")
+          .filter((account) => account.role === "admin")
+          .map((account) => account.id);
+    recipientIds.forEach((id) =>
+      addNotification(
+        id,
+        "New resident message",
+        `${user.name}: ${text.slice(0, 140)}`,
+        report.id,
+      ),
+    );
+  }
+  if (isAdmin()) openReportViewer(report.id);
+  else renderMyReports();
+}
+
+function handleCrossTabUpdate(event) {
+  if (![STORAGE_KEY, NOTIFICATIONS_KEY].includes(event.key)) return;
+  if (isAdmin()) renderAdminTable();
+  renderMyReports();
+  renderNotifications();
+  if (activeReportId && isAdmin()) openReportViewer(activeReportId);
+}
+
+function prepareEvidencePhoto(file) {
+  if (!file)
+    return Promise.reject(new Error("Attach at least one evidence photo."));
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    return Promise.reject(new Error("Choose a JPEG, PNG, or WebP image."));
   }
   if (file.size > 10 * 1024 * 1024) {
     return Promise.reject(
@@ -864,7 +1171,7 @@ function prepareEvidencePhoto(file) {
             );
             return;
           }
-          const maxDimension = 1280;
+          const maxDimension = 1000;
           const scale = Math.min(
             1,
             maxDimension / Math.max(image.width, image.height),
@@ -878,7 +1185,7 @@ function prepareEvidencePhoto(file) {
             return;
           }
           context.drawImage(image, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL("image/jpeg", 0.78));
+          resolve(canvas.toDataURL("image/jpeg", 0.68));
         } catch {
           reject(new Error("The evidence photo could not be processed."));
         }
@@ -887,6 +1194,88 @@ function prepareEvidencePhoto(file) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+function handleEvidenceSelection(event) {
+  const input = event.currentTarget;
+  const files = [...input.files];
+  const feedback = document.getElementById("evidenceFeedback");
+  if (files.length > MAX_EVIDENCE_PHOTOS) {
+    input.value = "";
+    feedback.textContent = `Choose no more than ${MAX_EVIDENCE_PHOTOS} evidence photos.`;
+    feedback.classList.remove("hidden");
+    renderEvidencePreviews();
+    return;
+  }
+  const invalidFile = files.find(
+    (file) =>
+      !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+      file.size > 10 * 1024 * 1024,
+  );
+  if (invalidFile) {
+    input.value = "";
+    feedback.textContent =
+      "Choose JPG, PNG, or WebP images no larger than 10 MB each.";
+    feedback.classList.remove("hidden");
+    renderEvidencePreviews();
+    return;
+  }
+  feedback.textContent = "";
+  feedback.classList.add("hidden");
+  renderEvidencePreviews();
+}
+
+function renderEvidencePreviews() {
+  const input = document.getElementById("evidencePhoto");
+  const container = document.getElementById("evidencePreview");
+  if (!input || !container) return;
+  container
+    .querySelectorAll("img")
+    .forEach((image) => URL.revokeObjectURL(image.src));
+  container.innerHTML = [...input.files]
+    .map((file, index) => {
+      const src = URL.createObjectURL(file);
+      return `<article class="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50"><img src="${src}" alt="Selected evidence ${index + 1}" class="h-28 w-full object-cover"><button type="button" onclick="removeEvidencePhoto(${index})" class="absolute right-1 top-1 rounded-full bg-white px-2 py-1 text-xs font-bold text-rose-700 shadow">Remove</button></article>`;
+    })
+    .join("");
+}
+
+function removeEvidencePhoto(index) {
+  const input = document.getElementById("evidencePhoto");
+  const transfer = new DataTransfer();
+  [...input.files].forEach((file, fileIndex) => {
+    if (fileIndex !== index) transfer.items.add(file);
+  });
+  input.files = transfer.files;
+  renderEvidencePreviews();
+}
+
+function renderResolutionPreviews() {
+  const input = document.getElementById("resolutionPhotos");
+  const container = document.getElementById("resolutionPreview");
+  const files = [...input.files];
+  if (
+    files.length > MAX_EVIDENCE_PHOTOS ||
+    files.some(
+      (file) =>
+        !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
+        file.size > 10 * 1024 * 1024,
+    )
+  ) {
+    input.value = "";
+    container.innerHTML =
+      '<p class="text-sm text-rose-700">Choose up to 5 JPG, PNG, or WebP images (10 MB max each).</p>';
+    return;
+  }
+  container
+    .querySelectorAll("img")
+    .forEach((image) => URL.revokeObjectURL(image.src));
+  container.innerHTML = files
+    .map(
+      (file) =>
+        `<img src="${URL.createObjectURL(file)}" alt="Resolution proof preview" class="h-20 w-full rounded-lg border border-slate-200 object-cover">`,
+    )
+    .join("");
 }
 
 async function handleFormSubmit(e) {
@@ -898,12 +1287,16 @@ async function handleFormSubmit(e) {
   }
   const form = e.currentTarget;
   const submitButton = form.querySelector('button[type="submit"]');
-  const evidenceFile = document.getElementById("evidencePhoto").files[0];
+  const evidenceFiles = [...document.getElementById("evidencePhoto").files];
+  if (!evidenceFiles.length || evidenceFiles.length > MAX_EVIDENCE_PHOTOS) {
+    alert("Attach between 1 and 5 evidence photos before submitting.");
+    return;
+  }
   submitButton.disabled = true;
 
-  let evidencePhoto;
+  let evidencePhotos;
   try {
-    evidencePhoto = await prepareEvidencePhoto(evidenceFile);
+    evidencePhotos = await Promise.all(evidenceFiles.map(prepareEvidencePhoto));
   } catch (error) {
     alert(error.message);
     submitButton.disabled = false;
@@ -917,14 +1310,16 @@ async function handleFormSubmit(e) {
   } while (db.some((report) => report.id === code));
   const newRecord = {
     id: code,
+    ownerId: user.id,
     name: user.name,
     contact: user.contactNumber || user.email,
     barangay: document.getElementById("barangaySelect").value,
     category: document.getElementById("categorySelect").value,
     description: document.getElementById("descriptionInput").value,
-    evidencePhoto,
+    evidencePhotos,
+    messages: [],
     date: new Date().toISOString().split("T")[0],
-    status: "Pending Review",
+    status: "Pending Verification",
   };
 
   db.unshift(newRecord);
@@ -939,6 +1334,12 @@ async function handleFormSubmit(e) {
     return;
   }
 
+  notifyOfficials(
+    "New complaint submitted",
+    `${user.name} submitted ${code} for verification.`,
+    code,
+  );
+  renderAdminTable();
   submitButton.disabled = false;
   document.getElementById("modalTrackingCode").textContent = code;
   document.getElementById("successModal").classList.remove("hidden");
@@ -954,9 +1355,15 @@ function closeSuccessModal() {
 
 function handleTrackSearch(e) {
   if (e) e.preventDefault();
+  const user = getCurrentUser();
+  if (!isResidentRole(user?.role)) return;
   const code = document.getElementById("trackInput").value.trim().toUpperCase();
   const db = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  const match = db.find((i) => String(i.id || "").toUpperCase() === code);
+  const match = db.find(
+    (item) =>
+      String(item.id || "").toUpperCase() === code &&
+      isReportOwnedBy(item, user),
+  );
   const container = document.getElementById("trackResultContainer");
   container.classList.remove("hidden");
 
@@ -966,16 +1373,24 @@ function handleTrackSearch(e) {
   }
 
   container.innerHTML = `
-                <div class="bg-white p-4 rounded-xl border border-slate-200 text-xs space-y-2 shadow-sm">
-                    <div class="flex justify-between font-bold text-emerald-800">
-                        <span>${escapeHtml(match.id)}</span>
-                        <span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">${escapeHtml(match.status)}</span>
-                    </div>
-                    <p><strong>Barangay:</strong> Brgy. ${escapeHtml(match.barangay)}</p>
-                    <p><strong>Category:</strong> ${escapeHtml(match.category)}</p>
-                    <p><strong>Details:</strong> ${escapeHtml(match.description)}</p>
-                </div>
-            `;
+    <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div class="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+        <p class="font-mono font-bold text-emerald-800">${escapeHtml(match.id)}</p>
+        <span class="inline-flex w-fit rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(match.status)}">${escapeHtml(match.status)}</span>
+      </div>
+      <div class="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+        <p><strong>Barangay:</strong> Brgy. ${escapeHtml(match.barangay)}</p>
+        <p><strong>Category:</strong> ${escapeHtml(match.category)}</p>
+        <p><strong>Assigned personnel:</strong> ${escapeHtml(getAssignedPersonnelLabel(match) || "Awaiting verification")}</p>
+        <p><strong>Filed:</strong> ${escapeHtml(match.date)}</p>
+        <p class="sm:col-span-2"><strong>Details:</strong> ${escapeHtml(match.description)}</p>
+        ${match.rejectionReason ? `<p class="sm:col-span-2 rounded-lg bg-rose-50 p-3 text-rose-800"><strong>Rejection reason:</strong> ${escapeHtml(match.rejectionReason)}</p>` : ""}
+      </div>
+      ${renderReportPhotos(match.evidencePhotos || (match.evidencePhoto ? [match.evidencePhoto] : []), "Submitted evidence")}
+      ${renderReportPhotos(match.resolutionPhotos || [], "Resolution proof")}
+      ${renderReportConversation(match, user)}
+    </article>
+  `;
 }
 
 function escapeHtml(value) {
@@ -999,14 +1414,6 @@ function initAdminDashboard() {
     if (button) openReportViewer(button.dataset.reportId);
   });
   document
-    .getElementById("reportViewerContent")
-    .addEventListener("click", (event) => {
-      if (event.target.closest("[data-view-evidence]") && activeReportId) {
-        const report = getReports().find((item) => item.id === activeReportId);
-        if (report?.evidencePhoto) openEvidenceViewer(report.evidencePhoto);
-      }
-    });
-  document
     .getElementById("reportViewerModal")
     .addEventListener("click", (event) => {
       if (event.target.id === "reportViewerModal") closeReportViewer();
@@ -1022,11 +1429,9 @@ function initAdminDashboard() {
   document
     .getElementById("profileForm")
     .addEventListener("change", updateProfileDraft);
-  document
-    .getElementById("profileModal")
-    .addEventListener("click", (event) => {
-      if (event.target.id === "profileModal") closeProfile();
-    });
+  document.getElementById("profileModal").addEventListener("click", (event) => {
+    if (event.target.id === "profileModal") closeProfile();
+  });
   document
     .getElementById("adminAccountModal")
     .addEventListener("click", (event) => {
@@ -1048,10 +1453,12 @@ function getReports() {
 
 function statusBadgeClass(status) {
   const classes = {
-    "Pending Review": "bg-amber-100 text-amber-900",
+    "Pending Verification": "bg-amber-100 text-amber-900",
+    Verified: "bg-indigo-100 text-indigo-900",
+    Assigned: "bg-violet-100 text-violet-900",
     "In Progress": "bg-sky-100 text-sky-900",
     Resolved: "bg-emerald-100 text-emerald-900",
-    Closed: "bg-slate-100 text-slate-700",
+    Rejected: "bg-rose-100 text-rose-900",
   };
   return classes[status] || "bg-slate-100 text-slate-700";
 }
@@ -1083,17 +1490,21 @@ function renderAdminTable() {
   const tbody = document.getElementById("adminTableBody");
   document.getElementById("statTotal").textContent = db.length;
   document.getElementById("statPending").textContent = db.filter(
-    (report) => report.status === "Pending Review",
+    (report) => report.status === "Pending Verification",
   ).length;
-  document.getElementById("statProgress").textContent = db.filter(
-    (report) => report.status === "In Progress",
+  document.getElementById("statVerified").textContent = db.filter(
+    (report) => report.verified === true,
   ).length;
-  document.getElementById("statPriority").textContent = db.filter(
-    (report) => ["Urgent", "High"].includes(report.priority),
+  document.getElementById("statRejected").textContent = db.filter(
+    (report) => report.status === "Rejected",
+  ).length;
+  document.getElementById("statProgress").textContent = db.filter((report) =>
+    ["Assigned", "In Progress"].includes(report.status),
   ).length;
   document.getElementById("statResolved").textContent = db.filter(
-    (report) => report.status === "Resolved" || report.status === "Closed",
+    (report) => report.status === "Resolved",
   ).length;
+  renderDashboardCharts(db);
   const statusFilter = document.getElementById("adminStatusFilter");
   const priorityFilter = document.getElementById("adminPriorityFilter");
   const categoryFilter = document.getElementById("adminCategoryFilter");
@@ -1137,6 +1548,7 @@ function renderAdminTable() {
       report.date,
       report.status,
       report.priority || "Normal",
+      getAssignedPersonnelLabel(report),
       report.assignedDepartment || "",
       report.description,
     ]
@@ -1163,11 +1575,11 @@ function renderAdminTable() {
                     <td class="py-3 px-4">Brgy. ${escapeHtml(report.barangay)}</td>
                     <td class="py-3 px-4">${escapeHtml(report.category)}</td>
                     <td class="py-3 px-4"><span class="inline-flex whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full font-bold ${priorityBadgeClass(report.priority)}">${escapeHtml(report.priority || "Normal")}</span></td>
-                    <td class="py-3 px-4">${escapeHtml(report.assignedDepartment || "Unassigned")}</td>
+                    <td class="py-3 px-4">${escapeHtml(getAssignedPersonnelLabel(report) || "Unassigned")}</td>
                     <td class="py-3 px-4">${escapeHtml(report.date)}</td>
                     <td class="py-3 px-4"><span class="inline-flex whitespace-nowrap px-2.5 py-1 text-[11px] rounded-full font-bold ${statusBadgeClass(report.status)}">${escapeHtml(report.status)}</span></td>
                     <td class="py-3 px-4 text-right">
-                        <button type="button" data-report-id="${escapeHtml(report.id)}" class="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded font-bold">View / Update</button>
+                        <button type="button" data-report-id="${escapeHtml(report.id)}" class="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded font-bold">${report.status === "Pending Verification" ? "Review complaint" : "View / Update"}</button>
                     </td>
                 </tr>
             `,
@@ -1176,6 +1588,57 @@ function renderAdminTable() {
     : `
                 <tr><td colspan="9" class="py-8 px-4 text-center text-slate-500">No reports match these filters.</td></tr>
             `;
+}
+
+function renderDashboardCharts(reports) {
+  const categories = reports.reduce((counts, report) => {
+    counts[report.category] = (counts[report.category] || 0) + 1;
+    return counts;
+  }, {});
+  const categoryChart = document.getElementById("categoryChart");
+  const categoryEntries = Object.entries(categories).sort(
+    (a, b) => b[1] - a[1],
+  );
+  const maxCategory = Math.max(1, ...categoryEntries.map(([, count]) => count));
+  categoryChart.innerHTML = categoryEntries.length
+    ? categoryEntries
+        .map(
+          ([name, count]) =>
+            `<div><div class="mb-1 flex justify-between gap-2 text-xs"><span class="truncate font-medium text-slate-700">${escapeHtml(name)}</span><span class="font-semibold text-slate-600">${count}</span></div><div class="h-2 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-emerald-600" style="width:${Math.round((count / maxCategory) * 100)}%"></div></div></div>`,
+        )
+        .join("")
+    : '<p class="text-sm text-slate-500">Category data will appear when complaints are submitted.</p>';
+
+  const months = [];
+  const now = new Date();
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    months.push({
+      key: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+      label: date.toLocaleString(undefined, { month: "short" }),
+      count: 0,
+    });
+  }
+  reports.forEach((report) => {
+    const month = String(report.date || "").slice(0, 7);
+    const entry = months.find((item) => item.key === month);
+    if (entry) entry.count += 1;
+  });
+  const maxMonth = Math.max(1, ...months.map((item) => item.count));
+  document.getElementById("trendChart").innerHTML = months
+    .map(
+      (item) =>
+        `<div class="flex h-28 flex-col items-center justify-end gap-2"><span class="text-xs font-semibold text-slate-600">${item.count}</span><div class="w-full rounded-t-md bg-emerald-600" style="height:${Math.max(4, Math.round((item.count / maxMonth) * 72))}px" aria-hidden="true"></div><span class="text-xs text-slate-500">${item.label}</span></div>`,
+    )
+    .join("");
+
+  const resolved = reports.filter(
+    (report) => report.status === "Resolved",
+  ).length;
+  const verified = reports.filter((report) => report.verified === true).length;
+  const percent = verified ? Math.round((resolved / verified) * 100) : 0;
+  document.getElementById("resolutionChart").innerHTML =
+    `<div class="flex justify-between text-xs text-slate-600"><span>${resolved} of ${verified} verified complaints resolved</span><strong>${percent}%</strong></div><div class="mt-2 h-3 overflow-hidden rounded-full bg-slate-100"><div class="h-full rounded-full bg-emerald-600" style="width:${percent}%"></div></div>`;
 }
 
 function isAdmin() {
@@ -1195,9 +1658,64 @@ function openReportViewer(reportId) {
     statusSelect.add(new Option(report.status, report.status));
   }
   statusSelect.value = report.status;
+  document
+    .getElementById("verificationForm")
+    .classList.toggle("hidden", report.status !== "Pending Verification");
+  document
+    .getElementById("dispatchForm")
+    .classList.toggle(
+      "hidden",
+      report.status === "Pending Verification" || report.status === "Rejected",
+    );
+  document.getElementById("rejectionReason").value = "";
+  const personnel = JSON.parse(localStorage.getItem(USERS_KEY) || "[]").filter(
+    (user) => user.role === "admin" && user.status !== "inactive",
+  );
+  const personnelOptions = (select, placeholder) => {
+    select.replaceChildren(new Option(placeholder, ""));
+    personnel.forEach((official) => {
+      select.add(
+        new Option(
+          `${official.name} · Brgy. ${official.barangay}`,
+          official.id,
+        ),
+      );
+    });
+  };
+  personnelOptions(
+    document.getElementById("verificationPersonnel"),
+    "Select responsible personnel",
+  );
+  personnelOptions(
+    document.getElementById("reportAssignedPersonnel"),
+    "Select responsible personnel",
+  );
+  document.getElementById("verificationPersonnel").value =
+    report.assignedPersonnelId || "";
+  document.getElementById("reportAssignedPersonnel").value =
+    report.assignedPersonnelId || "";
+  document.getElementById("reportOfficialResponse").value = "";
+  document.getElementById("resolutionPhotos").value = "";
+  document.getElementById("resolutionPreview").innerHTML = renderReportPhotos(
+    report.resolutionPhotos || [],
+    "Existing resolution proof",
+  );
+  document.getElementById("reportStatusSelect").disabled = !report.verified;
+  if (report.verified) {
+    [...statusSelect.options].forEach((option) => {
+      option.disabled =
+        option.value === "Pending Verification" || option.value === "Rejected";
+    });
+  } else {
+    [...statusSelect.options].forEach((option) => {
+      option.disabled = false;
+    });
+  }
   const prioritySelect = document.getElementById("reportPrioritySelect");
   const priority = report.priority || "Normal";
-  if (![...prioritySelect.options].some((option) => option.value === priority)) {
+  if (
+    ![...prioritySelect.options].some((option) => option.value === priority)
+  ) {
     prioritySelect.add(new Option(priority, priority));
   }
   prioritySelect.value = priority;
@@ -1215,11 +1733,10 @@ function openReportViewer(reportId) {
   departmentSelect.value = report.assignedDepartment || "";
   document.getElementById("reportStatusFeedback").classList.add("hidden");
 
-  const photo =
-    typeof report.evidencePhoto === "string" &&
-    report.evidencePhoto.startsWith("data:image/jpeg;base64,")
-      ? report.evidencePhoto
-      : null;
+  const evidencePhotos =
+    report.evidencePhotos ||
+    (report.evidencePhoto ? [report.evidencePhoto] : []);
+  const currentUser = getCurrentUser();
   document.getElementById("reportViewerContent").innerHTML = `
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <p><strong>Tracking Code</strong><br>${escapeHtml(report.id)}</p>
@@ -1230,17 +1747,14 @@ function openReportViewer(reportId) {
                     <p><strong>Category</strong><br>${escapeHtml(report.category)}</p>
                     <p><strong>Dispatch Priority</strong><br>${escapeHtml(report.priority || "Normal")}</p>
                     <p><strong>Assigned Municipal Unit</strong><br>${escapeHtml(report.assignedDepartment || "Not yet assigned")}</p>
+                    <p><strong>Responsible Personnel</strong><br>${escapeHtml(getAssignedPersonnelLabel(report) || "Not assigned")}</p>
                     <p class="sm:col-span-2"><strong>Current Status</strong><br>${escapeHtml(report.status)}</p>
+                    ${report.rejectionReason ? `<p class="sm:col-span-2 rounded-lg bg-rose-50 p-3 text-rose-800"><strong>Rejection reason</strong><br>${escapeHtml(report.rejectionReason)}</p>` : ""}
                     <p class="sm:col-span-2 whitespace-pre-wrap"><strong>Detailed Description</strong><br>${escapeHtml(report.description)}</p>
                 </div>
-                <div class="border-t border-slate-200 pt-4">
-                    <h3 class="font-semibold text-slate-800 mb-2">Evidence Photo</h3>
-                    ${
-                      photo
-                        ? `<button type="button" data-view-evidence class="block text-left rounded-lg overflow-hidden border border-slate-200 hover:ring-2 hover:ring-emerald-600" aria-label="View and enlarge evidence photo"><img src="${photo}" alt="Resident-submitted evidence" class="max-h-48 max-w-full object-contain bg-slate-50"><span class="block px-3 py-2 text-xs font-semibold text-emerald-800">View and enlarge photo</span></button>`
-                        : '<p class="text-sm text-slate-500">No evidence photo was submitted.</p>'
-                    }
-                </div>
+                ${renderReportPhotos(evidencePhotos, "Resident-submitted evidence")}
+                ${renderReportPhotos(report.resolutionPhotos || [], "Resolution proof")}
+                ${renderReportConversation(report, currentUser)}
             `;
   document.getElementById("reportViewerModal").classList.remove("hidden");
 }
@@ -1251,7 +1765,7 @@ function closeReportViewer() {
 }
 
 function openEvidenceViewer(photo) {
-  if (!photo.startsWith("data:image/jpeg;base64,")) return;
+  if (!isStoredEvidencePhoto(photo)) return;
   document.getElementById("evidenceViewerImage").src = photo;
   document.getElementById("evidenceViewerModal").classList.remove("hidden");
 }
@@ -1262,18 +1776,94 @@ function closeEvidenceViewer() {
   document.getElementById("evidenceViewerImage").removeAttribute("src");
 }
 
-function handleReportStatusUpdate(event) {
+async function handleReportStatusUpdate(event) {
   event.preventDefault();
   if (!isAdmin() || !activeReportId) return;
   const reports = getReports();
   const report = reports.find((item) => item.id === activeReportId);
   if (!report) return;
 
-  report.status = document.getElementById("reportStatusSelect").value;
+  const nextStatus = document.getElementById("reportStatusSelect").value;
+  const assigneeId = document.getElementById("reportAssignedPersonnel").value;
+  const assignee = JSON.parse(localStorage.getItem(USERS_KEY) || "[]").find(
+    (user) => user.id === assigneeId,
+  );
+  if (!report.verified || report.status === "Rejected") {
+    alert(
+      "Only verified complaints can be assigned or moved through progress statuses.",
+    );
+    return;
+  }
+  if (!assigneeId || !assignee) {
+    alert("Assign a responsible barangay personnel before saving this update.");
+    return;
+  }
+  if (
+    nextStatus === "Resolved" &&
+    !(report.resolutionPhotos || []).length &&
+    !document.getElementById("resolutionPhotos").files.length
+  ) {
+    alert(
+      "Upload at least one resolution proof photo before marking this complaint resolved.",
+    );
+    return;
+  }
+
+  const previousStatus = report.status;
+  const previousAssignee = report.assignedPersonnelId;
+  const uploadedFiles = [...document.getElementById("resolutionPhotos").files];
+  const response = document
+    .getElementById("reportOfficialResponse")
+    .value.trim();
+  if (uploadedFiles.length > MAX_EVIDENCE_PHOTOS) {
+    alert("Choose no more than 5 resolution proof photos.");
+    return;
+  }
+  const currentUser = getCurrentUser();
+  const hasProgressWork =
+    nextStatus !== report.status || response || uploadedFiles.length > 0;
+  if (
+    hasProgressWork &&
+    report.assignedPersonnelId !== currentUser.id &&
+    assignee.id !== currentUser.id
+  ) {
+    alert(
+      "Only the assigned personnel can update progress. Reassign the complaint to yourself first if you are taking responsibility.",
+    );
+    return;
+  }
+  let newResolutionPhotos = [];
+  try {
+    newResolutionPhotos = await Promise.all(
+      uploadedFiles.map(prepareEvidencePhoto),
+    );
+  } catch (error) {
+    alert(error.message);
+    return;
+  }
+  report.status = nextStatus;
   report.priority = document.getElementById("reportPrioritySelect").value;
   report.assignedDepartment = document.getElementById(
     "reportDepartmentSelect",
   ).value;
+  report.assignedPersonnelId = assignee.id;
+  report.assignedPersonnelName = assignee.name;
+  report.assignedPersonnelBarangay = assignee.barangay || "";
+  report.resolutionPhotos = [
+    ...(report.resolutionPhotos || []),
+    ...newResolutionPhotos,
+  ];
+  if (nextStatus === "Resolved" && !report.resolvedAt)
+    report.resolvedAt = new Date().toISOString();
+  if (response) {
+    report.messages = report.messages || [];
+    report.messages.push({
+      authorId: getCurrentUser().id,
+      authorName: getCurrentUser().name,
+      text: response,
+      createdAt: new Date().toISOString(),
+    });
+  }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(reports));
   } catch (error) {
@@ -1282,9 +1872,106 @@ function handleReportStatusUpdate(event) {
     return;
   }
 
+  if (previousAssignee !== assignee.id) {
+    addNotification(
+      assignee.id,
+      "Complaint assigned to you",
+      `${report.id} has been assigned to you.`,
+      report.id,
+    );
+    notifyResident(
+      report,
+      "Complaint personnel assigned",
+      `${assignee.name} is responsible for your complaint.`,
+    );
+  }
+  if (previousStatus !== nextStatus) {
+    notifyResident(
+      report,
+      `Complaint ${nextStatus.toLowerCase()}`,
+      `Your complaint ${report.id} is now ${nextStatus}.`,
+    );
+  }
+  if (response)
+    notifyResident(
+      report,
+      "Progress update from barangay personnel",
+      response.slice(0, 180),
+    );
   renderAdminTable();
   openReportViewer(activeReportId);
   const feedback = document.getElementById("reportStatusFeedback");
   feedback.textContent = "Dispatch update saved.";
   feedback.classList.remove("hidden");
+}
+
+function handleComplaintVerification(event) {
+  event.preventDefault();
+  if (!isAdmin() || !activeReportId) return;
+  const decision = event.submitter?.value;
+  const reports = getReports();
+  const report = reports.find((item) => item.id === activeReportId);
+  if (!report || report.status !== "Pending Verification") return;
+  if (decision === "reject") {
+    const reason = document.getElementById("rejectionReason").value.trim();
+    if (!reason) {
+      alert("Provide a reason before rejecting a complaint.");
+      document.getElementById("rejectionReason").focus();
+      return;
+    }
+    report.status = "Rejected";
+    report.rejectionReason = reason;
+  } else if (decision === "verify") {
+    const officialId = document.getElementById("verificationPersonnel").value;
+    const official = JSON.parse(localStorage.getItem(USERS_KEY) || "[]").find(
+      (user) =>
+        user.id === officialId &&
+        user.role === "admin" &&
+        user.status !== "inactive",
+    );
+    if (!official) {
+      alert(
+        "Select an active barangay personnel before verifying this complaint.",
+      );
+      return;
+    }
+    report.status = "Verified";
+    report.verified = true;
+    report.verifiedAt = new Date().toISOString();
+    report.assignedPersonnelId = official.id;
+    report.assignedPersonnelName = official.name;
+    report.assignedPersonnelBarangay = official.barangay || "";
+  } else {
+    return;
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(reports));
+  } catch (error) {
+    console.error("Unable to save complaint verification.", error);
+    alert(
+      "The verification decision could not be saved in this browser. Please try again.",
+    );
+    return;
+  }
+  if (decision === "reject") {
+    notifyResident(
+      report,
+      "Complaint rejected",
+      `Your complaint was rejected: ${report.rejectionReason}`,
+    );
+  } else {
+    addNotification(
+      report.assignedPersonnelId,
+      "Complaint assigned to you",
+      `${report.id} is verified and assigned to you.`,
+      report.id,
+    );
+    notifyResident(
+      report,
+      "Complaint verified and assigned",
+      `Your complaint was verified. ${report.assignedPersonnelName} will handle it.`,
+    );
+  }
+  renderAdminTable();
+  openReportViewer(report.id);
 }
